@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loulabelle 5201 Reference Manual</title>
+<link rel="stylesheet" type="text/css" href="manual.css">
+</head>
+
+<body>
+
+<hr>
+<h1>
+Loulabelle 5201 Reference Manual
+</h1>
+
+<p>
+<small>
+Freely available under the terms of the
+<a href="https://opensource.org/licenses/mit-license.html">MIT license</a>.
+</small>
+<hr>
+<p>
+
+<!-- ====================================================================== -->
+<p>
+
+
+<h1>1 &ndash; <a name="1">Introduction</a></h1>
+
+<p>
+Loulabelle is a compiler (or <a href="https://en.wikipedia.org/wiki/Source-to-source_compiler">transpiler</a>),
+which translates programs written in <a href="https://www.lua.org/home.html">Lua</a> version <a href="https://www.lua.org/manual/5.2/manual.html">5.2</a>
+to JavaScript (ECMAScript 2015 ES6), and a runtime support library,
+which enables the execution of such translated programs in a JavaScript environment such as a Web browser or Node.js.
+<p>
+Programs compiled by Loulabelle can be used anywhere that JavaScript code can be used,
+for example as the scripts to control a Web page, or in a smaller role, as supporting
+scripts that interact with other scripts written in JavaScript.
+<p>
+This reference manual assumes the reader is familiar with Lua 5.2 and ECMAScript 2015 ES6.
+The manual is styled after the Lua reference manual, but discusses information specific
+to Loulabelle.  As such, it happens to discuss implementation details before the larger points.
+Please feel free to skip ahead to <a href="#4">section 4</a> and <a href="#7">section 7</a> for a discussion about the interoperability
+of Lua and JavaScript programs.
+<p>
+Loulabelle is free software, and is provided as usual with no guarantees, as stated in its license. The implementation
+described in this manual is available at the Loulabelle official web site, <a href="https://www.spaceflint.com/loulabelle">www.spaceflint.com/loulabelle</a>.
+
+<h1>2 &ndash; <a name="2">Basic Concepts</a></h1>
+
+<p>
+This section describes the Loulabelle implementation of
+the basic concepts of the Lua language.
+
+<h2>2.1 &ndash; <a name="2.1">Values and Types</a></h2>
+
+<p>
+Lua types <code>boolean</code>, <code>number</code> and <code>string</code>
+are implemented as the corresponding types in JavaScript.  Note that strings in JavaScript
+are encoded in UNICODE, while most Lua implementations support 8-bit strings.
+Lua <code>nil</code> is implemented as JavaScript <code>undefined</code>.
+<p>
+The Lua <code>table</code> is implemented as the following JavaScript object.
+<pre>{ luatable: true, array: [], hash: new Map(), metatable: undefined, id: undefined }</pre>
+<code>luatable</code> is a truthy value that is used in type checks,
+<code>array</code> and <code>hash</code> are, respectively,
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array"><code>Array</code></a>
+and <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map"><code>Map</code></a>
+JavaScript objects for the array and hash parts of the table,
+<code>metatable</code> is an optional reference to a metatable,
+and finally, <code>id</code> is only assigned if the table is passed to the <code>tostring</code> function,
+which uses an incrementing counter to simulate a unique address value for each table.
+<p>
+The Lua <code>function</code> is implemented as a JavaScript
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/function*">generator function</a>,
+which provides a mechanism to <code>yield</code> execution, and in turn, to emulate synchronous
+execution and Lua coroutines.  Because generator functions are slower than normal JavaScript functions,
+Loulabelle also provides the function <code>coroutine.fastcall</code> to call Lua functions as normal
+JavaScript functions, which are faster but cannot yield or suspend.
+<p>
+The Lua <code>coroutine</code> is implemented as a JavaScript object,
+which contains the property <code>luacoroutine</code> that tracks the
+state of the coroutine, and also participates in type checks.
+Other properties in this object are <code>id</code> which was described above,
+<code>generator</code> which references the coroutine function,
+<code>status</code> which is the status string returned by the <code>coroutine.status</code>
+library function, <code>stack</code> which is an array that contains the Lua call stack,
+and <code>protected</code>, which indicates execution within
+a <code>pcall</code> or <code>xpcall</code> scope.
+
+<p>
+While the JavaScript objects representing the Lua table and coroutine
+have been briefly discussed, the reader is strongly advised to interact
+with these objects exclusively through the Loulabelle core library,
+which exposes a JavaScript API, discussed in <a href="#4">section 4</a>.
+
+<p>
+The Loulabelle library function <code>type</code> behaves the same
+and returns the same results as its Lua namesake.
+
+<p>
+Functions in Lua may return multiple values, and this is implemented
+in Loulabelle by always returning an array, even if the array has no
+elements (which would indicate the function did not return any result).
+
+<h2>2.2 &ndash; <a name="2.2">Environments and the Global Environment</a></h2>
+
+<p>
+Loulabelle assigns a property named <code>env</code> in each JavaScript function
+object, and this property references the environment table for the function.
+Typically, this <code>env</code> property references the global environment table.
+
+<p>
+A reference to the Lua variable <code>_ENV</code> (either implicitly or explictly)
+in a function is translated a reference to a local variable in JavaScript (called <code>env</code>)
+which is assigned from the <code>env</code> property of the same function.  Note that as in
+Lua 5.2, references to global variables, as well as to <code>_G</code> (the global table),
+are done through the implicit <code>_ENV</code> variable.
+
+<p>
+The library function <code>load</code> can bind a function to a custom environment:
+<pre>local f2 = load(string.dump(f), nil, nil, custom_env_table)</pre>
+This works the same in Loulabelle, but please note a few points:
+<ul>
+<li>The Loulabelle function <code>string.dump</code> merely
+    returns the function passed as a parameter, without any modification.
+    (Note that at the time that Lua code is executing in the JavaScript
+    environment, the function is actually a JavaScript function object.)<p></li>
+<li>The Loulabelle function <code>load</code> does not
+    support compilation from source code, as that would
+    require bundling the compiler with the core library.</li>
+    It expects a function as its first parameter, a table as
+    its fourth parameter, and ignores its second and third parameters.</li>
+</ul>
+
+<p>
+After the Loulabelle compiler has been invoked on itself to produce a JavaScript
+version of the compiler, and that compiled version of the
+compiler is executing in a JavaScript environment, it can compile a
+function from Lua source code while specifying a custom environment:
+
+<pre>local compiler = require "Loulabelle"
+local func, err = compiler("filename.lua", "source code text", { env = custom_env_table })</pre>
+
+<p>
+As with Lua 5.2 environments, changing the value of <code>_ENV</code> or <code>_G</code>
+before calling a function will not have an effect on the function,
+which is bound to an environment when its containing chunk is loaded.
+But note that unlike in Lua 5.2, the <code>debug</code> library in Loulabelle
+does not provide a mechanism to override the value of the bound <code>_ENV</code>.
+
+<h2>2.3 &ndash; <a name="2.3">Error Handling</a></h2>
+
+<p>
+Loulabelle provides error handling facilities in the functions <code>error</code>,
+<code>pcall</code>, <code>xpcall</code> and <code>debug.traceback</code>, all of
+which work the same as in Lua 5.2.
+
+<p>
+In terms of JavaScript, error handling is implemented via JavaScript
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/try...catch"><code>try...catch</code></a>
+statements, and the <code>error</code> function throws an error string,
+or some other error value, depending on the parameter passed to it.
+
+<p>
+For direct invocation of a Lua function from JavaScript
+code, the Loulabelle <code>xpcall</code> API function
+may be used instead of the unprotected <code>call</code>
+API function, or <code>call</code> can just be enclosed
+in a JavaScript <code>try...catch</code> block.
+
+<h2>2.4 &ndash; <a name="2.4">Metatables and Metamethods</a></h2>
+
+Loulabelle supports Lua metatables and metamethods,
+with two exceptions related to garbage collection:
+
+<ul>
+<li>The <code>__gc</code> method is not supported:
+Object finalizers are not supported and not invoked.<p></li>
+<li>The <code>__mode</code> property is not supported:
+Weak tables are not supported, table entries are
+garbage-collected only after all references to
+them are deleted.</li>
+</ul>
+
+<p>
+These facilities are not supported because JavaScript
+does not provide callbacks from its garbage collector,
+and because <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakMap"><code>WeakMap</code></a>
+is not enumerable.  For similar reasons, the <code>collectgarbage</code>
+Lua library function is not provided.
+
+<p>
+As in Lua 5.2, metamethods may yield (or suspend).
+
+<h2>2.6 &ndash; <a name="2.6">Coroutines</a></h2>
+
+<p>Loulabelle fully supports Lua coroutines.  Each
+thread of execution, including the first loaded chunk,
+occurs in the context of a coroutine.  This coroutine
+context, or coroutine object, is a JavaScript object
+that is accessible in Lua as an object with type
+<code>"thread"</code>.
+
+<p>
+In JavaScript, the coroutine object associated with
+the currently-executing thread is referenced by the
+property <code>co</code> in the global runtime object.
+Within this coroutine object, the property
+<code>main</code> is set to a boolean <code>true</code>
+for the thread of the first loaded chunk.
+
+<p>
+In Lua code, the same object reference is returned as
+an opaque value by the function <code>coroutine.running</code>,
+which also returns the <code>main</code> boolean flag
+as its second result.
+
+<p>
+As well as normal coroutines, created by
+<code>coroutine.create</code>, and wrapped coroutines,
+created by <code>coroutine.wrap</code>, Loulabelle
+supports two more types of coroutines.
+
+<p>
+Spawned coroutines, created by <code>coroutine.spawn</code>,
+are detached from the creating coroutine, and begin
+execution asynchronously and independently.  They are
+scheduled via a call to JavaScript
+<a href="https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout"><code>setTimeout</code></a>
+with a zero timeout, and should not be started explicitly.
+
+<p>
+Callback coroutines, created by <a href="#coroutine.jscallback"><code>coroutine.jscallback</code></a>,
+are normal JavaScript functions (not generator functions)
+that can be passed to JavaScript code, or attached to
+browser events.  When the function is executed, it
+creates a temporary coroutine, calls a specified Lua
+function, and passes its first result on to the caller.
+
+<p>
+Coroutines in Loulabelle can yield, as in Lua, via a
+call to <code>coroutine.yield</code> but can also
+suspend, via a call to <code>coroutine.suspend</code>.
+A suspended coroutine does not pass control back to
+its calling coroutine.  Instead it just suspends execution,
+presumably while waiting for some event to occur
+and cause it to resume execution.  For example, the
+<code>coroutine.sleep</code> function suspends the
+current coroutine after installing a timeout
+callback which calls <code>coroutine.resume</code>.
+
+<h1>3 &ndash; <a name="3">The Language</a></h1>
+
+<p>Loulabelle strives to implement the Lua language
+precisely according to the Lua 5.2 specification,
+however there are a few minor points of difference.
+
+<ul>
+
+<li>
+Loulabelle includes a <code>continue</code> statement,
+which can be used only within a <code>while</code> loop.
+<p></li>
+
+<li>
+The <code>goto</code> statement is limited in
+Loulabelle because JavaScript itself does not support
+a goto statement.  While it is possible to simulate
+goto statements using loops and switches, this was
+deemed unnecessary.  In Loulabelle, a goto statement
+may target a statement ...
+<p><ul>
+<li>... immediately after the close of any containing loop, thus
+simulating a multi-level <code>break</code> statement; or</li>
+<li>... immediately before the close of any containing loop,
+thus simulating a multi-level <code>continue</code> statement.</li>
+</ul><p></li>
+
+<li>
+The length operator <code>#</code>, when applied
+to tables, may return a different result in Loulabelle.
+In Loulabelle, the table length is calculated by starting
+from the JavaScript <code>length</code> property of the
+array part of the Lua table, and repeatedly decrementing
+it as long as it indexes <code>undefined</code>
+(i.e. <code>nil</code>) entries.
+<p></li>
+
+<li>
+Loulabelle, as in Lua, supports unpacking multiple
+results from the last value, in the case of assignment,
+function call, and table construction.  In the example below,
+<pre>local a, b, c = func1(x, y, func2())</pre>
+multiple results returned from <code>func2</code>
+may be passed to <code>func1</code> after the
+<code>y</code> parameter, and the second and third
+results returned from <code>func1</code> may be
+assigned to <code>b</code> and <code>c</code>.
+Loulabelle determines if a value is a multiple
+value by checking if it is a JavaScript object
+which has a length property:
+<pre>typeof v === 'object' &amp;&amp; v.length &gt; 0</pre>
+When mixing JavaScript and Lua objects in Lua code,
+it is important to keep this multiple value rule in
+mind.  Avoid passing a JavaScript object (which may
+contain the property <code>length</code>) as the last
+parameter in a Lua function call.  Instead, pass at
+least one more parameter (even <code>nil</code>).
+<p></li>
+
+</ul>
+
+<h2>3.6 &ndash; <a name="3.6">The JavaScript Statement</a></h2>
+
+The <code>JavaScript</code> statement lets Loulabelle
+programs directly embed JavaScript code.  The syntax
+of the statement is:
+
+<pre>JavaScript("stmt_string", arg1, ...argN)</pre>
+
+<p>
+where <code>stmt_string</code> is a quoted
+string constant containing JavaScript code,
+with these considerations:
+
+<ul>
+<li>It can optionally contain special escapes
+<code>$1</code> through <code>$N</code>
+(quoted within the string) that reference
+parameters <code>arg1</code> through
+<code>argN</code>.<p></li>
+
+<li>
+The special escape <code>$L</code> references the
+global runtime object <code>$lua</code>.<p></li>
+
+<li>
+The special escape <code>$$</code> translates to
+a single <code>$</code> sign.<p></li>
+
+<li>
+A semicolon is appended, unless the last character
+in the string is <code>{</code> or <code>}</code> or <code>;</code>
+(curly braces, semicolon).<p></li>
+
+<li>
+If the string starts with <code>"public var "</code>
+(11 characters, including the last space), the initial
+word <code>public</code> is dropped, and the result is
+written at the very top of the compiled output.<p></li>
+
+</ul>
+
+<p>
+The identifier <code>JavaScript</code> is not,
+strictly speaking, a reserved word.  It has a special
+meaning only in the form of a function call statement.
+
+<p>
+Example <code>JavaScript</code> statement:
+<pre>
+    local context = {}
+    local callback_id
+    JavaScript("$1=window.requestAnimationFrame($2)",
+        callback_id,
+        (coroutine.jscallback(
+            ::update_stack_frame::
+            JavaScript("console.log('in callback')")
+            function(context, timestamp)
+                context.timestamp = timestamp
+            end, context)))
+    context.callback_id = callback_id
+</pre>
+
+This example illustrates a few important points.
+
+<ul>
+<li>The JavaScript statement can assign into local
+variables (<code>$1=...</code> in the example,
+where <code>$1</code> references the local variable
+<code>callback_id</code>).  However, it cannot
+assign directly into tables (or global variables).<p></li>
+
+<li>Functions calls in Loulabelle return an array
+of values, so note the use of the Lua parentheses
+on the result of <a href="#coroutine.jscallback"><code>coroutine.jscallback</code></a>,
+to make sure that <code>$2</code> is a function
+reference.  Without the parentheses, <code>$2</code>
+would be a reference to an array containing that
+function reference that.<p></p>
+
+<li>The <code>JavaScript</code> statement can be
+nested inside a function definition that is one
+of the parameters to a higher-level
+<code>JavaScript</code> statement.<p></li>
+
+<li>The <code>JavaScript</code> statement does not
+cause line number debug information to be recorded.
+To force line number information to be written at
+the top of a function, a dummy label such as
+<code>::update_stack_frame::</code> is needed.
+Note that the name of the label is arbitrary.
+</ul>
+
+<h1>4 &ndash; <a name="4">The Application Program Interface</a></h1>
+
+<p>
+This section describes interoperability between the
+JavaScript environment, and any Lua code compiled by
+Loulabelle into JavaScript.  It also includes a
+description of various Loulabelle API functions that
+are can be invoked from JavaScript code.
+
+<p>
+All API functions and properties are contained in the
+global runtime object <code>$lua</code>.
+
+<p>
+A Lua function is compiled into the following JavaScript:
+<pre>$lua.func(
+        function* func() {
+            JavaScript code translated from Lua source code
+        },
+        $lua.env,
+        'filename.lua',
+        1)
+    );</pre>
+
+<p><code>$lua.func</code> is a small utility function,
+which decorates the first parameter, a function object,
+with a reference to the Lua environment for the function
+(passed as the second parameter), the chunk or file name,
+and the line number of the function (in the third and
+fourth parameters).
+
+<p>
+Note that like in Lua, a Lua source file is compiled
+by Loulabelle into a chunk, which is effectively a
+single JavaScript function that contains all the
+translated statements from the Lua source file:
+
+<pre>$lua.chunk( $lua.func ( ... ) );</pre>
+
+<p>
+JavaScript scripts compiled by Loulabelle from Lua
+can be loaded into a JavaScript environment (such as
+a Web browser or Node.js) the same way that any other
+JavaScript script is loaded.  However, the Loulabelle
+core library must be loaded first, to set up the
+global runtime object and the Lua environment.
+
+<p>A very simple HTML page example may look like this:
+
+<pre>
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;&lt;head&gt;
+&lt;script type="text/javascript" src="core.js"&gt;&lt;/script&gt;
+&lt;script type="text/javascript" src="main.js"&gt;&lt;/script&gt;
+&lt;/head&gt;&lt;body&gt;&lt;/body&gt;&lt;/html&gt;
+</pre>
+
+<p>
+Note in this example that <code>core.js</code>, the
+Loulabelle core library, is loaded and executed first.
+Only then, <code>main.js</code>, which would be the
+Loulabelle JavaScript translation of a Lua chunk,
+is loaded.
+
+<p>
+It is not valid to load more than one chunk in this
+way.  Lua code should use the Lua <code>require</code>
+function to load additional chunks.  However, compiled
+chunks can be modified to start with <code>$lua.preload_chunk</code>,
+instead of <code>$lua.chunk</code>, and this enables
+preloading chunks in advance.  For more on this, refer
+to the discussion in <a href="#6.3">section 6.3</a>.
+
+<h2>4.8 &ndash; <a name="4.8">Functions and Properties</a></h2>
+
+<p>
+All functions and properties listed below are contained
+in the global runtime object <code>$lua</code>.
+Almost all API functions are generator functions,
+which means they can be invoked using the
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/yield*"><code>yield*</code></a>
+expression if invoked from a generator function:
+
+<pre>JavaScript("yield*$L.tostring(123)")</pre>
+
+<p>If invoked from a normal function, the JavaScript
+function <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/next"><code>next</code></a>
+should be used.  For example,
+
+<pre>var str = $lua.tostring(123).next().value</pre>
+
+Here, the Loulabelle API generator function <code>tostring</code>
+is invoked (generated) with parameter <code>123</code>,
+and iterated once via a call to <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/next"><code>next</code></a>.
+
+<hr><h3><a name="call"><code>call</code></a></h3>
+<pre>call (name, func, arg1, ...argN)</pre>
+
+<p>
+Calls the Lua function <code>func</code>, passing
+it a variable number of parameters specified in
+<code>arg1</code> through <code>argN</code>.
+The first parameter <code>name</code> is the name
+of the called function, as it should appear in the
+Lua call stack entry created for the function, or
+if passed as <code>undefined</code>, inhibits the
+creation of a call stack entry.
+
+<p>
+As discussed in <a href="#3">section 3</a>, the last parameter is
+checked to see if it is an array:
+
+<pre>typeof v === 'object' &amp;&amp; v.length &gt; 0</pre>
+
+<p>
+If the check succeeds, <code>call</code> assumes
+the last parameter is an array of multiple values,
+and unpacks those values as additional parameters
+for the function call.
+
+<p>
+When using <code>call</code> to call functions with
+non-Lua JavaScript objects, it is important to keep
+this multiple value rule in mind.  Avoid passing a
+JavaScript object (which may contain the property
+<code>length</code>) as the last parameter.  Instead,
+pass at least one more parameter (even <code>undefined</code>).
+
+<p>
+The <code>call</code> function returns an array that
+contains the results returned from the Lua function.
+
+<hr><h3><a name="error"><code>error</code></a></h3>
+<pre>error (msg, level)</pre>
+
+<p>
+Generates an error message.  If <code>msg</code>
+is a string, <code>level</code> specifies which
+call stack entry to use for decorating the error
+message, where <code>0</code> means the current
+stack entry, <code>1</code> (the default) means
+the calling entry, and so on.  A value of
+<code>-1</code> means to not decorate the message.
+
+<hr><h3><a name="traceback"><code>traceback</code></a></h3>
+<pre>traceback (msg, level)</pre>
+
+<p>
+Generates a formatted stack trace.  The parameters
+are similar to the parameters for <code>error</code>,
+described above, except that a value of <code>-1</code>
+for the <code>level</code> parameter is not valid.
+
+<hr><h3><a name="type"><code>type</code></a></h3>
+<pre>type (v)</pre>
+
+Returns the type name for the Lua value <code>v</code>
+as a string (not wrapped in an array).
+Generates an <code>error</code> if the value is not
+a valid Lua type.
+
+<hr><h3><a name="table"><code>table</code></a></h3>
+<pre>table (vals, n1, n2)</pre>
+
+<p>
+Creates a Lua table using the values passed in the
+JavaScript array <code>vals</code>.  This array
+specifies both key-value pairs, and sequential values.
+The key-value pairs must come first, followed by
+the sequential values.  The array may be empty, if
+an empty table should be created.
+
+<p>
+The parameter <code>n1</code>, which must be an even
+number, and can be zero, specifies the number of
+key-value pairs in the array.  The parameter
+<code>n2</code> specifies the number of sequential
+values in the array.
+
+<p>
+Generates an <code>error</code> if a key in the
+key-value segment of the array is <code>NaN</code> or
+<code>undefined</code>.  Otherwise the return value
+is a JavaScript object that represents a Lua table.
+This returned object is not wrapped in an array.
+
+<p>
+As discussed in <a href="#3">section 3</a>, the last parameter is
+checked to see if it is itself an array:
+
+<pre>typeof v === 'object' &amp;&amp; v.length &gt; 0</pre>
+
+<p>
+If the check succeeds, <code>table</code> assumes
+the last parameter is an array of multiple values,
+and unpacks those values as additional sequential
+values.
+
+<p>
+When using <code>table</code> to create a table which
+references non-Lua JavaScript objects, it is important
+to keep this multiple value rule in mind.  Avoid
+passing a JavaScript object (which may contain the
+property <code>length</code>) as the last element in
+the <code>vals</code> array.  Instead, pass at least
+one more parameter (even <code>undefined</code>).
+
+<p>
+Note in the example below that <code>n1</code> is
+specified as <code>10</code>, for the first five
+key-value pairs, and <code>n2</code> is specified as
+<code>4</code> for the following four sequential values.
+<pre>
+    var t = $lua.table([
+        "a",   'val_a',
+        "b",   'val_b',
+        "c",   undefined,
+        true,  'val_true',
+        false, 'val_false',
+        123,
+        456,
+        111,
+        789
+    ],10,4).next().value</pre>
+
+<hr><h3><a name="len"><code>len</code></a></h3>
+<pre>len (v)</pre>
+
+<p>
+Returns the length of the Lua value <code>v</code>,
+which may be a string or a table.  May invoke the
+<code>__len</code> metamethod for a table, and
+generates an <code>error</code> for an unsupported
+type.  Returns the length as a number, not wrapped
+in an array.
+
+<hr><h3><a name="get"><code>get</code></a></h3>
+<pre>get (tbl, key, name)</pre>
+
+<p>
+Extracts the value of the key <code>key</code>
+from the table <code>tbl</code>.  The key should
+be any valid value that can index into a table.
+May invoke the <code>__index</code> metamethod.
+May generate an <code>error</code>, in which case,
+the <code>name</code> parameter, if provided,
+is used to decorate the error message.  Returns
+the value directly, not wrapped in an array.
+
+<hr><h3><a name="set"><code>set</code></a></h3>
+<pre>set (tbl, key, name, val)</pre>
+
+<p>
+Sets the value of the key <code>key</code>
+in the table <code>tbl</code> to value <code>val</code>.
+The key should be any valid value that can index
+into a table.  May invoke the <code>__newindex</code>
+metamethod.  May generate an <code>error</code>,
+in which case, the <code>name</code> parameter,
+if provided, is used to decorate the error message.
+This function does not return any results.
+
+<hr><h3><a name="gmt"><code>gmt</code></a></h3>
+<pre>gmt (v, typeof_v, who)</pre>
+
+<p>
+If <code>v</code> is a table, returns the metatable
+associated with the table, without respecting the
+<code>__metatable</code> property.  If <code>v</code>
+is not a table, returns the shared metatable for
+values of the type of <code>v</code>, which may be
+passed in the parameter <code>typeof_v</code>, or
+else will be determined from <code>v</code> itself.
+The parameter <code>who</code>, if provided, is used
+to decorate the generated <code>error</code>. The
+returned table reference is not wrapped in an array.
+
+<hr><h3><a name="smt"><code>smt</code></a></h3>
+<pre>smt (v, mt)</pre>
+
+<p>
+Assigns the metatable <code>mt</code> for table
+<code>v</code>, if <code>v</code> is a table, or
+the shared metatable for values of the type of
+<code>v</code>.  Does not respect the
+<code>__metatable</code> property.  This function
+does not return any results, and may generate an
+<code>error</code>.
+
+<hr><h3><a name="tonumber"><code>tonumber</code></a></h3>
+<pre>tonumber (s)</pre>
+
+<p>
+Parses the string <code>s</code> as a number
+according the Lua rules for a numeric constant
+presented in section 3.1 of the Lua reference manual.
+Returns a number, or <code>undefined</code> if the
+string cannot be converted to a number.  The return
+value is not wrapped in an array.
+
+<hr><h3><a name="tostring"><code>tostring</code></a></h3>
+<pre>tostring (v)</pre>
+
+<p>
+Converts the value <code>v</code> to a string, using
+a <code>__tostring</code> metamethod if available.
+Where Lua generally uses the memory address of an
+object in order to give tables and coroutines a unique
+string representation, Loulabelle uses an incrementing
+counter to produce a similar result.
+
+<p>
+Note that when converting a number, Lua uses
+<code>sprintf("%.14g")</code>, which produces results
+that may differ from JavaScript conversions, whether
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/toString"><code>toString</code></a>
+or
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_objects/Number/toPrecision"><code>toPrecision</code></a>
+is used.
+As the Lua reference manual suggests, for complete
+control over the output, use <code>string.format</code>.
+
+<hr><h3><a name="next"><code>next</code></a></h3>
+<pre>next (tbl, key)</pre>
+
+<p>
+Given a key <code>key</code> in table <code>tbl</code>,
+returns the next key.  If <code>key</code> is <code>undefined</code>,
+returns the first key.  Enumeration starts with the
+array part of the table, then switches to the hash part.
+The return value is not wrapped in an array.
+
+<p>
+The iterator for <code>next</code> is kept as part of
+the table being iterated, and will be invalidated if
+<code>next</code> is invoked for a key that does not
+match the current key in the iterator.  Avoid multiple
+concurrent <code>next</code> loops on the same table.
+
+<hr><h3><a name="xpcall"><code>xpcall</code></a></h3>
+<pre>xpcall (msgh, func, args_array)</pre>
+
+<p>
+Calls <code>func</code> in a protected scope,
+passing it the arguments in the JavaScript array
+<code>args_array</code>.  The parameter
+<code>msgh</code> specifies the message handler
+generator function to invoke in case of error,
+and can be specified as <code>$lua.dflt_msgh</code>
+if no message handler is needed, for a
+<code>pcall</code>-like behavior rather than
+<code>xpcall</code>-like behavior.
+
+<p>Returns an array where the first element is
+a <code>boolean</code> that indicates if the call
+succeeded without errors.  If <code>true</code>,
+the array also contains the zero or more results
+returned from the called function.  If
+<code>false</code>, the array contains the error
+message in the second element.
+
+<hr><h3><a name="cocreate"><code>cocreate</code></a></h3>
+<pre>cocreate (f)</pre>
+
+<p>
+Creates a coroutine object for the function <code>f</code>.
+The coroutine is initially suspended and must be resumed
+before it begins executing.  This function returns an
+array containing a single element, the coroutine object.
+
+<p>
+The coroutine object has a method <code>resume</code>,
+a normal function (not a generator), which accepts
+a JavaScript array of arguments, and resumes execution
+of the coroutine, passing it those arguments.  This
+method does not return a value:  If the resumed
+coroutine yields, it will itself invoke the
+<code>resume</code> method on the coroutine being
+yielded to, passing it the values to yield, and then
+return control.
+
+<hr><h3><a name="coresume"><code>coresume</code></a></h3>
+<pre>coresume (co, arg1, ...argN)</pre>
+
+<p>
+Resumes coroutine <code>co</code>, passing it a
+variable number of parameters specified in
+<code>arg1</code> through <code>argN</code>.
+Returns an array containing the values yielded by
+or returned from the coroutine being resumed.
+
+<hr><h3><a name="cosuspend"><code>cosuspend</code></a></h3>
+<pre>cosuspend ()</pre>
+
+<p>
+Suspends the current coroutine, which is the coroutine
+object referenced by <code>$lua.co</code>.
+
+<p>
+Unlike a Lua yield, a suspended coroutine does not
+automatically cause execution to resume in another
+coroutine.  The suspend mechanism is designed to
+accomodate the asynchronous nature of JavaScript.
+Lua code may schedule some asynchronous JavaScript
+operation, such as an XMLHttpRequest, suspend
+itself, and have the asynchronous callback resume it.
+For example, JavaScript code embedded in a Lua function:
+
+<pre>
+JavaScript("var co=$L.co")
+JavaScript("setTimeout(co.resume,5000)")
+JavaScript("yield*$L.cosuspend()")
+</pre>
+
+<p>
+The first line saves the current coroutine, because
+some other coroutine may be scheduled by the time the
+setTimeout callback fires.  The second line sets up
+a five second timer with a callback that resumes the
+current coroutine.  And the third line, which can only
+be executed in a generator function (such as a Lua
+function), suspends the current coroutine.  If writing
+non-generator JavaScript code, the third line can be
+rewritten as: <code>$lua.cosuspend().next()</code>
+
+<hr><h3><a name="cowrap"><code>cowrap</code></a></h3>
+<pre>cowrap (func)</pre>
+
+<p>
+Creates a function that wraps and drives a coroutine.
+Returns an array containing a generator function in
+the first element, and a coroutine object in the
+second element.  Each invocation of the generator
+function causes the coroutine to resume, passing it
+any parameters passed to the generator function.
+
+<hr><h3><a name="require_lua"><code>require_lua</code></a></h3>
+<pre>require_lua (url)</pre>
+
+<p>
+In the Web browser, creates a new <code>SCRIPT</code>
+element to asynchronously load a script.  In a Web worker,
+or in Node.js, loads the script synchronously, using
+<code>importScripts</code> or <code>require</code>,
+respectively.
+
+<p>
+The loaded script is expected to have been compiled by Loulabelle
+such that it contains a single call to <code>$lua.chunk</code>
+which wraps all other code in the chunk, as discussed
+at the top of section 4.
+
+<p>
+Returns a (generator) function representing the loaded chunk.
+This returned function is not wrapped in an array.
+
+<hr><h3><a name="require_js"><code>require_js</code></a></h3>
+<pre>require_js (url)</pre>
+
+<p>
+In the Web browser, creates a new <code>SCRIPT</code>
+element to asynchronously load a script.  In a Web worker,
+or in Node.js, loads the script synchronously, using
+<code>importScripts</code> or <code>require</code>,
+respectively.
+
+<p>
+Unlike <code>require_lua</code>, this function is
+intended to load non-Lua JavaScript code.  There is
+no return value, and the invoking code should check
+if the script loaded successfully.
+
+<hr><h3><a name="require_css"><code>require_css</code></a></h3>
+<pre>require_css (url, media)</pre>
+
+<p>
+In the Web browser, creates a new <code>LINK</code>
+element to asynchronously load a CSS file.  In a Web worker,
+or in Node.js, this functions does not do anything.
+The <code>media</code> parameter, which defaults to
+the string <code>screen</code> if omitted, is
+assigned to the <code>media</code> property of the
+created element.
+
+<hr><h3><a name="fastcall"><code>fastcall</code></a></h3>
+<pre>fastcall (f)</pre>
+
+<p>
+This normal, non-generator JavaScript function
+performs a dynamic, on-the-fly recompilation of the
+Loulabelle-translated generator function passed in
+<code>f</code>, into a normal, non-generator
+JavaScript function.  The new function is stored
+into a property named <code>fast</code> in the
+supplied function <code>f</code>, and then the
+new function is returned, not wrapped in an array.
+
+<h1>5 &ndash; <a name="5">The Auxiliary Library</a></h1>
+
+<p>
+This section describes parameter-checking utility
+functions in the Loulabelle API.  These are useful
+when writing JavaScript code which needs to validate
+any parameters passed to it from Lua code.
+
+<hr><h3><a name="error_arg"><code>error_arg</code></a></h3>
+<pre>error_arg (num, msg)</pre>
+
+<p>Generates this <code>error</code>:
+<pre>bad argument #(num) to 'function' (msg)</pre>
+
+<hr><h3><a name="error_argtype"><code>error_argtype</code></a></h3>
+<pre>error_argtype (got, num, exp)</pre>
+
+<p>Generates this <code>error</code>:
+<pre>bad argument #(num) to 'function' ((exp) expected, got (got))</pre>
+
+<hr><h3><a name="error_argexp"><code>error_argexp</code></a></h3>
+<pre>error_argexp (num, check)</pre>
+
+<p>If <code>num</code> is smaller than <code>check</code>,
+generates this <code>error</code>:
+<pre>bad argument #(num) to 'function' (value expected)</pre>
+
+<hr><h3><a name="checkstring"><code>checkstring</code></a></h3>
+<pre>checkstring (arg, num)</pre>
+
+<p>If the <code>arg</code> parameter is a string, returns it.
+If it is a number, converts the number to a string and returns it.
+Otherwise calls <a href="#error_argtype"><code>error_argtype</code></a> with <code>num</code>.
+The return value is not wrapped in an array.
+
+<hr><h3><a name="checknumber"><code>checknumber</code></a></h3>
+<pre>checknumber (arg, num)</pre>
+
+<p>If the <code>arg</code> parameter is a number, returns it.
+If it is a string that can be converted using <a href="#tonumber"><code>tonumber</code></a>,
+converts the string to a number and returns it.
+Otherwise calls <a href="#error_argtype"><code>error_argtype</code></a>
+with <code>num</code>.
+The return value is not wrapped in an array.
+
+<hr><h3><a name="checktable"><code>checktable</code></a></h3>
+<pre>checktable (arg, num)</pre>
+
+<p>Returns nothing if <code>arg</code> is a Lua table.
+Otherwise calls <a href="#error_argtype"><code>error_argtype</code></a>
+with <code>num</code>.
+
+<hr><h3><a name="checkfunction"><code>checkfunction</code></a></h3>
+<pre>checkfunction (arg, num)</pre>
+
+<p>Returns nothing if <code>arg</code> is a Lua function.
+Otherwise calls <a href="#error_argtype"><code>error_argtype</code></a>
+with <code>num</code>.
+
+<hr><h3><a name="checkcoroutine"><code>checkcoroutine</code></a></h3>
+<pre>checkcoroutine (arg, num)</pre>
+
+<p>Returns nothing if <code>arg</code> is a Lua coroutine.
+Otherwise calls <a href="#error_argtype"><code>error_argtype</code></a>
+with <code>num</code>.
+
+<h1>6 &ndash; <a name="6">Standard Libraries</a></h1>
+
+This sections describes the differences in the
+standard library in Loulabelle compares to Lua 5.2.
+
+<h2>6.1 &ndash; <a name="6.1">Basic Functions</a></h2>
+
+<p>Not implemented:  <code>collectgarbage</code>, <code>dofile</code>, <code>loadfile</code>.
+
+<hr><h3><a name="load"><code>load (func, source, mode, env)</code></a></h3>
+
+<p>
+Clones the Lua generator function passed in
+<code>func</code> as a new generator function which
+will use the environment table passed in the
+parameter <code>env</code>, which can be passed as
+<code>_ENV</code> or <code>_G</code> for the
+default environment.
+Ignores parameters <code>source</code> and <code>mode</code>.
+See also <a href="#2.2">section 2.2</a>.
+
+<hr><h3><a name="next"><code>next (table [, index])</code></a></h3>
+
+<p>
+The iterator used to track calls to this function is
+associated with the table being iterator.  Concurrent
+iteration over different indexes will impact performance
+by forcing the iterator to be repeatedly invalidated.
+Note that functionality will not be impacted in any way.
+See also the <a href="#next">next</a> API function in <a href="#4.8">section 4.8</a>.
+For example, try to avoid code like this:
+
+<pre>
+k1 = next(t)            -- iterator advances to second element
+while k1 do
+    k2 = next(t)        -- iterator restarts at first element
+    while k2 do
+        k2 = next(t, k2)
+    end
+    k1 = next(t, k1)    -- iterator restarts, positions to k1
+end
+</pre>
+
+<p>In this example, the outer and inner loop share
+the same internal iterator, which has to be
+repeatedly invalidated, restated and repositioned.
+Prefer to use the functions <code>pairs</code> and
+<code>ipairs</code>, which use dedicated iterators,
+and are not subject to this performance issue.
+
+<hr><h3><a name="print"><code>print (&middot;&middot;&middot;)</code></a></h3>
+
+<p>
+Similar to Lua print, uses <a href="#tostring"><code>tostring</code></a>
+on all input parameters to construct an output string.
+See there for considerations about number conversion.
+<p>
+If the global <code>printwriter</code> is a Lua function,
+it is called with this function with the output string.
+Otherwise, the default behavior is to call JavaScript
+<a href="https://developer.mozilla.org/en-US/docs/Web/API/Console/log"><code>console.log</code></a>
+with the output string.
+
+<h2>6.2 &ndash; <a name="6.2">Coroutine Manipulation</a></h2>
+
+<p>
+Coroutines in Loulabelle can suspend/resume in
+addition to a normal Lua resume/yield combination.
+This is discussed in more detail in <a href="#2.6">section 2.6</a>
+and in the <a href="#cosuspend"><code>cosuspend</code></a> API function.
+
+<hr><h3><a name="coroutine.spawn"><code>coroutine.spawn (f, arg1, ...argN)</code></a></h3>
+
+Creates a coroutine and schedules it for immediate
+execution via a call to JavaScript <a href="https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout"><code>setTimeout</code></a>
+with a zero timeout.  Returns the new coroutine.
+
+<p>
+Note that JavaScript is a single-threaded environment,
+and only one thread of JavaScript executes at the same time.
+(For sake of simplicity, we ignore worker threads.)
+
+<p>This example illustrates cooperating multithreading using asynchronous coroutines:
+
+<pre>
+local main = coroutine.running()
+local f = function(three, four, six)
+    print (three)
+    coroutine.resume(main)
+    print (four)
+    coroutine.suspend()
+    print (six)
+end
+print '#1'
+local co = coroutine.spawn(f, '#3', '#4', '#6')
+print '#2'
+coroutine.suspend()
+print '#5'
+coroutine.resume(co)
+</pre>
+
+<p>
+The output is <code>#1 #2 #3 #4 #5 #6</code>.  Note
+that <code>spawn</code> or <code>resume</code> do
+not immediately cause another thread to run.  The
+currently-running thread (whichever one it is) must
+suspend itself before any other thread can run.
+
+<hr><h3><a name="coroutine.suspend"><code>coroutine.suspend ()</code></a></h3>
+
+<p>
+Suspends the current coroutine.  Unlike a Lua yield,
+a suspended coroutine does not automatically cause
+execution to resume in another coroutine.
+The suspend mechanism is designed to accomodate the
+asynchronous nature of JavaScript.  Lua code may
+schedule some asynchronous JavaScript operation,
+such as an XMLHttpRequest, suspend itself, and have
+the asynchronous callback resume it.  See also the
+<a href="#cosuspend"><code>cosuspend</code></a> API function.
+
+<p>
+Note that some care should be taken when one coroutine
+may be resumed by more than one callback at the same
+time.  For example, if the same suspended coroutine
+can be resumed either by a button click or an
+XMLHttpRequest callback, the coroutine may need some
+way to identify which callback caused it to resume.
+
+<hr><h3><a name="coroutine.sleep"><code>coroutine.sleep (ms)</code></a></h3>
+
+<p>
+Suspends execution of the current coroutine for a duration
+of <code>ms</code> milliseconds, using the JavaScript
+<a href="https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout"><code>setTimeout</code></a>
+function.
+
+<hr><h3><a name="coroutine.status"><code>coroutine.status (co)</code></a></h3>
+
+<p>
+The only difference from the standard Lua function
+of the same name is that this function may also
+return the status <code>asyncwait</code> which
+indicates the coroutine has suspended itself using
+<a href="#coroutine.suspend"><code>coroutine.suspend</code></a>
+or <a href="#cosuspend"><code>cosuspend</code></a>.
+Note that a status of <code>suspended</code>, as in
+Lua, indicates the coroutine has not started running
+yet, or has called <code>yield</code>.
+
+<hr><h3><a name="coroutine.wrap"><code>coroutine.wrap (f)</code></a></h3>
+
+The only difference from the standard Lua function
+of the same name is that this function also returns
+the coroutine object as a second result.
+
+<hr><h3><a name="coroutine.jscallback"><code>coroutine.jscallback (func, arg1, ...argN)</code></a></h3>
+
+Creates a callback coroutine, as discussed in <a href="#2.6">section 2.6</a>.
+and see also the example in <a href="#3.6">section 3.6</a>.
+
+<p>JavaScript callbacks are typically normal functions,
+whereas Loulabelle-translated Lua functions are
+generator functions.  The <code>jscallback</code>
+function makes it simple to connect Lua functions to
+JavaScript callbacks, as shown in the example in section 3.6.
+
+<p>The returned function is normal JavaScript function
+(not generator functions) which acts as the callback
+wrapper.  When this wrapper is called, it creates a
+temporary coroutine with the call stack at the point
+of the call to <code>jscallback</code>.  Then the Lua
+function is called in the context of the temporary
+coroutine.  The Lua function receives the parameters
+passed to <code>jscallback</code> as well as any
+parameters passed in the invocation of the
+callback wrapper.
+
+<p>The first result from the Lua function is
+returned to the caller of the callback wrapper.
+Note that if the Lua function yields or suspends,
+instead of returning, this also returns control
+to the callback wrapper, but in this case, nothing
+is returned to the caller of the callback wrapper.
+
+<p>Note that the temporary coroutine created for
+the duration of the callback is not subject to a
+<code>pcall</code> or <code>xpcall</code> protected
+scope that was established during the creation of
+the callback, i.e. when <code>jscallback</code>
+was called.
+
+<hr><h3><a name="coroutine.jsconvert"><code>coroutine.jsconvert (jsobj, luatbl)</code></a></h3>
+
+<p>This function converts between Lua tables and
+JavaScript objects and vice versa.  It is not
+directly related to coroutine management.
+
+<p>
+If <code>jsobj</code> is <code>nil</code>, the
+function recursively traverses the Lua table in
+<code>luatbl</code> and constructs a JavaScript
+object that contains all <code>boolean</code>,
+<code>number</code> and <code>string</code>
+values in the table, and any tables referenced by it.
+Values in any other type are ignored.
+
+<p>
+If <code>jsobj</code> is not <code>nil</code>, the
+function recursively traverses the JavaScript object
+and populates the Lua table <code>luatbl</code>
+with the properties from the JavaScript object.
+
+<p>
+This function may make non-Lua JavaScript objects
+accessible to the Lua caller of this function.
+Be advised that using Lua functions such as
+<code>tostring</code> or <code>type</code> on
+non-Lua objects may generate various forms of the
+error:  <code>unexpected type in getmetatable</code>.
+
+<hr><h3><a name="coroutine.mutex"><code>coroutine.mutex ()</code></a></h3>
+
+<p>Returns a mutex table object which can be used to
+synchronize between threads.  The object provides
+the following methods:
+<ul>
+<li><code>lock</code> - suspends the caller
+(using <a href="#coroutine.suspend"><code>coroutine.suspend</code></a>)
+until the mutex can be acquired, then returns <code>true</code>.</li>
+<li><code>trylock</code> - if the mutex is not
+acquired, acquires it and return <code>true</code>,
+otherwise returns <code>false</code> without suspending.</li>
+<li><code>unlock</code> - releases an acquired mutex,
+and resumes the first thread that tried to acquire the
+mutex while it was locked.</li>
+</ul>
+
+<p>
+All methods expect a single parameter, the
+mutex table object, and can be invoked using the
+Lua colon syntax for method calls.
+
+<hr><h3><a name="coroutine.fastcall"><code>coroutine.fastcall (func, arg1, ...argN)</code></a></h3>
+
+<p>
+Performs a dynamic, on-the-fly recompilation of the
+Lua function <code>func</code>, into a normal,
+non-generator JavaScript function.  This "fast"
+version of the function is cached for future
+invocations.  Any functions called by
+<code>func</code> will also be
+<code>fastcall</code>-converted and cached.
+
+<p>
+In many JavaScript engines, JavaScript generator
+functions do not enjoy the same JavaScript JIT
+compiler optimizations that are available to
+non-generator functions.  The <code>fastcall</code>
+mechanism makes it possible to optimize specific
+Lua functions that require higher performance.
+
+<p>
+Note that functions converted by <code>fastcall</code>:
+<ul>
+<li>Cannot use any asynchronous features that depend on
+generators, such as coroutines and <code>require</code>.<p></li>
+<li>Cannot reference any upvalues.  Note that this restriction
+is only checked and enforced when compiling Lua in default mode
+with debug checks.  When compiling optimized Lua code, this
+restriction is not checked, and may cause reference errors,
+or silently reference the wrong variable and produce wrong results.
+</li>
+</ul>
+
+<p>
+The <code>fastcall</code> recompiler works by
+calling JavaScript toString() on the input function.
+Then, under the assumption that the function was
+created by Loulabelle, rewrites <code>yield*</code>
+expressions as direct function calls.
+
+<h2>6.3 &ndash; <a name="6.3">Modules</a></h2>
+
+<p>
+As in Lua, the <code>require</code> function is
+provided in the global environment.  The
+<code>package</code> table provides only two
+fields: <code>package.loaded</code> which caches
+(or can be used to preload) modules, and
+<code>package.Loulabelle</code> which is the
+Loulabelle version number and set to <code>5201</code>.
+
+<p>
+<hr><h3><a name="#require"><code>require (modname)</code></a></h3>
+
+<p>
+Invokes <a href="#require_lua"><code>require_lua</code></a>
+to load a script file from a relative URL that is
+composed of <code>modname</code> concatenated with
+the suffix <code>.js</code>.
+
+<p>
+The script is loaded and executed, and per the
+discussion in <a href="#4">section 4</a> and in
+<a href="#require_lua"><code>require_lua</code></a>,
+the script is expected to contain a single call
+to <code>$lua.chunk</code>, which makes the loaded
+chunk accessible to Loulabelle.
+
+<p>
+The loaded chunk is then called, and its result is
+recorded in the <code>package.loaded</code> table,
+and returned to the caller.
+
+<p>
+A chunk may be preloaded in advance of a call to
+<code>require</code>, by replacing the call to
+<code>$lua.chunk</code> with a call to
+<code>$lua.preload_chunk</code>.
+
+<p>At the top of the compiled chunk, instead of:
+
+<pre>$lua.chunk( $lua.func ( ... ) );</pre>
+
+<p>Change to:
+
+<pre>$lua.preload_chunk('new_chunk_name', $lua.func ( ... ) );</pre>
+
+<p>
+Preloading can also be used to bundle several chunks
+into one file, and change chunk names.
+The Loulabelle compiler itself makes use of this
+technique; see the <code>build.sh</code> example
+in the Loulabelle <code>compiler</code> folder.
+
+<h2>6.4 &ndash; <a name="6.4">String Manipulation</a></h2>
+
+<p>
+Strings in Loulabelle are JavaScript strings, encoded
+in UNICODE, while most Lua implementations support
+8-bit strings.
+
+<p>
+<code>string.format</code> in Loulabelle supports
+only 20 digits of precision in the various floating
+point number formats, as opposed to 99 digits in Lua.
+
+<p><b>Patterns and Regular Expressions</b>
+
+<p>
+Loulabelle does not support Lua patterns.  Instead,
+the full JavaScript regular expression engine is
+available for use anywhere that a Lua pattern can
+be used.  To use a regular expression string, wrap
+it in a call to <code>string.regex</code>.  For example:
+
+<pre>
+local pattern = string.regex("([A-Z])([a-z]*)")
+local iterator = string.gmatch("Quick Brown Fox", pattern)
+while true do
+    local cap1, cap2 = iterator()
+    if cap1 then print (cap1, cap2) else break end
+end
+</pre>
+
+<p>
+If you limit the use of patterns and regular
+expressions to only those features common to both,
+then the following <a href="https://en.wikipedia.org/wiki/Polyfill_(programming)">polyfill</a>
+can be used in programs that have to run under Lua
+as well as Loulabelle.
+
+<pre>
+string.regex = string.regex or function(s) return s end
+</pre>
+
+<hr><h3><a name="string.dump"><code>string.dump (f)</code></a></h3>
+
+<p>
+Returns the input function <code>f</code>.  This is
+merely intended to maintain compatibility with Lua
+code that uses the result of <code>string.dump</code>
+in a call to <a href="#load"><code>load</code></a>,
+as in the example in <a href="#2.2">section 2.2</a>.
+
+<hr><h3><a name="string.regex"><code>string.regex (s)</code></a></h3>
+
+<p>
+Records the regular expression <code>s</code> in the
+table of known regular expressions, for use by one
+of the pattern functions: <code>string.find</code>,
+<code>string.match</code>, <code>string.gmatch</code>,
+and <code>string.gsub</code>.
+
+<hr><h3><a name="string.index"><code>string.index (haystack, needle, init)</code></a></h3>
+
+<p>
+Searches for the string <code>needle</code>
+in string <code>haystack</code>, optionally starting
+at position <code>init</code> (default is 1).
+Returns the index of occurence, or <code>nil</code>
+if not found.
+
+<p>
+Unlike the <code>init</code> parameter to
+<code>string.find</code>, negative positions
+do not count back from the end of the string.
+
+<p>
+The search is done using the JavaScript function
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/indexOf"><code>indexOf</code></a>.
+
+<hr><h3><a name="string.rindex"><code>string.rindex (haystack, needle, init)</code></a></h3>
+
+<p>
+Searches backwards for the string <code>needle</code>
+in string <code>haystack</code>, optionally starting
+at position <code>init</code> (default is <code>#haystack</code>)
+and going back towards the beginning of the string.
+Returns the index of occurence, or <code>nil</code>
+if not found.
+
+<p>
+Unlike the <code>init</code> parameter to
+<code>string.find</code>, negative positions
+do not count back from the end of the string.
+
+<p>
+The search is done using the JavaScript function
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/lastIndexOf"><code>lastIndexOf</code></a>.
+
+<hr><h3><a name="string.startswith"><code>string.startswith (string, prefix, index)</code></a></h3>
+
+<p>
+Checks if <code>string</code>, starting at position
+<code>index</code> (default to 1), starts with the
+sub-string <code>#prefix</code>.
+
+<p>
+The check is done using the JavaScript function
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/startsWith"><code>startsWith</code></a>.
+
+<hr><h3><a name="string.endswith"><code>string.endswith (string, suffix, length)</code></a></h3>
+
+<p>
+Checks if <code>string</code>,
+of length <code>length</code> (default to <code>#string</code>),
+ends with the sub-string <code>#suffix</code>.
+
+<p>
+The check is done using the JavaScript function
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/endsWith"><code>endsWith</code></a>.
+
+<hr><h3><a name="string.trim"><code>string.trim (s)</code></a></h3>
+
+<p>
+Returns the string <code>s</code> with whitespace
+removed from both ends of the string.
+
+<p>
+Uses JavaScript function
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/Trim"><code>trim</code></a>.
+
+<hr><h3><a name="string.ltrim"><code>string.ltrim (s)</code></a></h3>
+
+<p>
+Returns the string <code>s</code> with whitespace
+removed from the left end of the string.
+
+<p>
+Uses JavaScript function
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/TrimLeft"><code>trimLeft</code></a>.
+
+<hr><h3><a name="string.rtrim"><code>string.rtrim (s)</code></a></h3>
+
+<p>
+Returns the string <code>s</code> with whitespace
+removed from the right end of the string.
+
+<p>
+Uses JavaScript function
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/trimRight"><code>trimRight</code></a>.
+
+<h2>6.9 &ndash; <a name="6.9">Operating System Facilities</a></h2>
+
+Loulabelle provides only a few functions in the <code>os</code> library,
+and even those provide limited functionality.
+
+<hr><h3><a name="os.date"><code>os.date (format, time)</code></a></h3>
+
+<p>
+The only formats supported are <code>"*t"</code> to
+return the results in a table (in which the field
+<code>isdst</code> is always <code>false</code>),
+or <code>"%c"</code> (the default) to return a full
+date string.
+The <code>format</code> string may optionally start
+with <code>'!'</code> to select UTC time rather than
+local time.
+
+<hr><h3><a name="os.time"><code>os.time ([table])</code></a></h3>
+
+<p>
+If the field <code>isdst</code> in the table is
+<code>true</code>, the time zone difference from UTC
+is added to the result.  This is not necessarily
+desired or correct.
+
+<hr><h3><a name="os.setlocale"><code>os.setlocale (locale, category)</code></a></h3>
+
+<p>
+Sets the current locale for the string collator,
+which is initially set to a default JavaScript
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Collator"><code>Intl.Collator</code></a>
+object.  Therefore <code>category</code> can only
+be specified as <code>"all"</code> or <code>"collate"</code>,
+if not omitted.  The <code>locale</code> is passed
+to the <code>Intl.Collator</code> constructor.
+This function does not return the current locale.
+
+<h2>6.10 &ndash; <a name="6.10">The Debug Library</a></h2>
+
+Loulabelle provides only a few functions in the <code>debug</code> library:
+
+<p><code>debug.getmetatable</code>,
+<code>debug.setmetatable</code>,
+and <code>debug.traceback</code>.
+
+<h1>7 &ndash; <a name="7">Loulabelle Compiler</a></h1>
+
+<h2>7.1 &ndash; <a name="7.1">Command Line Compiler</a></h2>
+
+The compiler is composed of several Lua modules
+that can be found in the <code>compiler</code> folder.
+To invoke the compiler, you may need to set the
+<code>LUA_PATH</code> environment variable to include
+the compiler folder.
+
+<pre>
+export LOULABELLE=~/Loulabelle/compiler
+export LUA_PATH=$LOULABELLE/?.lua
+lua $LOULABELLE/main.lua [options] inputfile
+</pre>
+
+The options are:
+
+<ul>
+<li><b><code>-h</code>: </b> display usage</li>
+<li><b><code>-o</code>: </b> optimize function calls and turn off call stack</li>
+<li><b><code>-G</code>: </b> disallow assignment to globals without table reference</li>
+<li><b><code>-J</code>: </b> disallow JavaScript statements</li>
+<li><b><code>-L <em>name</em></code>: </b> set object name for JavaScript (default $lua)</li>
+<li><b><code>-n <em>name</em></code>: </b> set chunk name (default same as inputfile argument)</li>
+</ul><p>
+
+<p>The source Lua program is read from <code>inputfile</code>
+if specified, otherwise from standard input.  The compiled
+JavaScript program is written to standard output.
+
+<h2>7.2 &ndash; <a name="7.2">The Compiled Compiler</a></h2>
+
+The <code>build.sh</code> shell script in the
+<code>compiler</code> folder combines the various
+modules that make up the compiler into a single
+<code>Loulabelle.js</code> file.  This compiled
+compiler can be preloaded into a web application:
+
+<pre>
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;&lt;head&gt;
+&lt;script type="text/javascript" src="core.js"&gt;&lt;/script&gt;
+&lt;script type="text/javascript" src="Loulabelle.js"&gt;&lt;/script&gt;
+&lt;script type="text/javascript" src="webapp.js"&gt;&lt;/script&gt;
+&lt;/head&gt;&lt;body&gt;&lt;/body&gt;&lt;/html&gt;
+</pre>
+
+<p>In this example, <code>webapp.js</code> is the
+compiled form of <code>webapp.lua</code>, which might
+contain the following Lua code:
+
+<pre>
+local Loulabelle = require "Loulabelle"
+local chunk_text = "print (_VERSION)"
+local chunk_name = 'test.lua'
+local func, err = Loulabelle(chunk_name, chunk_text, { env = _G, debug=true })
+if not err then func() end
+</pre>
+
+The third parameter to the compiler is a table of options:
+
+<ul>
+<li><b><code>version</code>: </b>
+If this field is true, the compiler immediately
+returns with a version string and version number,
+e.g. <code>return "1.0", 1.0</code>
+<p></li>
+
+<li><b><code>jsobject</code>: </b>
+The name of the global runtime object.  The default
+name is <code>$lua</code>.  All compiled Lua code in
+the same JavaScript environment should use the
+same name.
+<p></li>
+
+<li><b><code>debug</code>: </b>
+If this field is false, "release" or optimized
+output is selected rather than "debug" output:
+The generated code is slightly faster, does not
+include Lua call stack and line number information,
+and is minimized.
+<p></li>
+
+<li><b><code>JavaScript</code>: </b>
+If this field is false, the compiler will not
+recognize the JavaScript statement.
+<p></li>
+
+<li><b><code>globals</code>: </b>
+If this field is false, the compiler will detect
+assignments to global variables, and raise an error.
+<p></li>
+
+</ul><p>
+
+<p>
+<HR>
+<SMALL CLASS="footer">
+Last update: Mar 2018
+</SMALL>
+
+</body></html>
