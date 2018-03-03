@@ -1,0 +1,52 @@
+
+#console-section {
+    height: 100%;
+    width: 80vw;
+    font-family: Lucida Console, monaco, Courier New, monospace;
+    font-size: 16pt;
+}
+
+#console-placeholder {
+    display: none;
+}
+
+#console-iframe {
+    position: absolute;
+    left: 20vw;
+    width: 80vw;
+    top: 0;
+    z-index: 99;
+}
+
+#console-section .CodeMirror {
+    font-family: inherit;
+    font-size: inherit;
+    height: 100%;
+    width: 100%;
+}
+
+#console-input {
+    display: block;
+    font-family: inherit;
+    font-size: inherit;
+    flex-grow: 20;
+    width: 95%;
+    background: yellow;
+}
+
+/*
+ * mobile
+ */
+
+@media only screen and (max-device-width: 768px) {
+
+#console-section {
+    width: 100vw;
+}
+
+#console-iframe {
+    left: 0vw;
+    width: 100vw;
+}
+
+}

@@ -1,0 +1,111 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"/></head><body>
+
+<br><div class="program-title"><h2>LOULABELLE PLAYGROUND</h2></div>
+
+<br><div id="finder-button-console" class="finder-caption"><h2>CONSOLE</h2></div>
+
+<div><script id="finder-recent-template" type="text/x-handlebars-template">
+<br><div class="finder-caption"><h2>RECENT FILES</h2>
+<img class="finder-button-clear-recent unselectable" draggable="false" ondragstart="return false;" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABdSURBVDhPYxh0gBNK4wM41YAkrgNxAZiHHYDkQGpwGgJS8B9KowN8cigAm0KiNcMAsgaSNcMATCNZmkGAIgNgmkE0MpsogE0D0YbgU0jQEKokJJwSSIAYNXQDDAwACk4hlYRFt+kAAAAASUVORK5CYII=">
+</div>
+<br>
+{{#each recents}}
+    <div class="finder-row" data-path="{{path}}">
+        <img class="unselectable" draggable="false" ondragstart="return false;" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABbSURBVDhPYxh0oBWIfwLxfzT8FYjtgZggAGkWhDBRAMiQ10BM0BCQQmwAJA7STNAQfAbAMMg7OAEuA5ABXjWjBlDBAFwJCQZAciA1OAGupAzDILkmIB40gIEBALM1KTUtqLyjAAAAAElFTkSuQmCC">
+        <span class="finder-filename"><span class="filename" title="{{path}}">{{path}}</span></span>
+        <img class="finder-button-run-file unselectable" draggable="false" ondragstart="return false;" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAD7SURBVDhPtZNNTgJBEEZb1v6sWchWhYu4IuAROASiG0+iiCHhBASOQbgCEdi7FvheTZUOKJkY5CUvU9VTPVPd05OORU0+yK5LXJWFXMi+XMm5HLrEjHHvXP4KkydyJuvyRAbETfkuqaH2BwPJ5EvLUir7NQ/3qOlZloP10SJvDj7kkzy17Bs6ofbaMudR0l6+7bXL+luyJIErYx3LnBc5zsIv4gHhVN5KoPY5CzMOfsBfl7CQ95Y5N5KNaViWsW8T7+Sn3NpE4JAUfcaKpKNXy3aIg8RS+FTRMhAzxmRq9p7GMxlHmXWO3KWk7TdJTSFXkk2Kn6ntY/9NShszrEWunkE+AwAAAABJRU5ErkJggg==">
+    </div>
+{{/each}}</script></div>
+
+<br><div class="finder-caption"><h2>FOLDERS</h2>
+<img id="finder-button-new-folder" class="unselectable" draggable="false" ondragstart="return false;" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADjSURBVDhPzZLZCQIxEIYXRB/EowGPNkSxHK92xKMCjwoUe/FELcIn/b9kl7DZKPgg+MFHZpZkyM4k+gVduZZ3+YjXlezIj+TlXO5lX9ZkIV4H8ignMieDzORGlkyWhe9bSZEMXPsgiyZzPOM1oSLPMvM7/HPPhin8AjCUSxs6aFTdhilCBdh3s6GDbtMw4NA7gX3sT/HNDZoycwPmzOh8QgVGcmFDB109ybLJHH6BqmRf22QezJc5+0USGOFOjk0WgBc2lRfJy2tIGsbK6Jg/h9++xASux5xpFN2+xnlL/h1R9AJsyzIrB+D6VQAAAABJRU5ErkJggg==" alt="New folder" title="New folder">
+</div><br>
+
+<div><script id="finder-folder-template" type="text/x-handlebars-template">
+{{#each folders}}
+    <div class="finder-row" data-folder-name="{{folder_name}}" data-folder-open="">
+        <img draggable="false" ondragstart="return false;" class="unselectable" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABhSURBVDhPzdIxDoAgEETRvYC3xngtr0WDDoUTwEl2Ov3Jqxa0YOM37VDhggYnbGD3XB4dYLdezvQfFmDqUKZ/hKkDDqaGDqaGDqaGDqaGDqaGDqYWKTM947jKjtcifVXEDaTYk6XxJKwfAAAAAElFTkSuQmCC" alt="Open folder '{{folder_name}}'" title="Open folder '{{folder_name}}'">
+        <img draggable="false" ondragstart="return false;" class="unselectable" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACTSURBVDhPzdIxDsIwDIXhiL1SuVInUA/ALTgFVe/A2IGRM3AgRoRgAPpbaqwQLGIm+qRPii3HHZowm3S444UnTqjgTryc6uFOfrlEPriDxhoqkSUaa8BDExuydY0FfkpcMGCFR9L7RhMbLQ5JXaKR4owal6n20Eixx2Y6e2muaHCENWh5+41bLHGDNZz7eEj/SggjaSOCoQ+HRrsAAAAASUVORK5CYII=" alt="Close folder '{{folder_name}}'" title="Close folder '{{folder_name}}'" style="display: none;">
+        <img class="finder-button-new-file unselectable" draggable="false" ondragstart="return false;" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADjSURBVDhPzZLZCQIxEIYXRB/EowGPNkSxHK92xKMCjwoUe/FELcIn/b9kl7DZKPgg+MFHZpZkyM4k+gVduZZ3+YjXlezIj+TlXO5lX9ZkIV4H8ignMieDzORGlkyWhe9bSZEMXPsgiyZzPOM1oSLPMvM7/HPPhin8AjCUSxs6aFTdhilCBdh3s6GDbtMw4NA7gX3sT/HNDZoycwPmzOh8QgVGcmFDB109ybLJHH6BqmRf22QezJc5+0USGOFOjk0WgBc2lRfJy2tIGsbK6Jg/h9++xASux5xpFN2+xnlL/h1R9AJsyzIrB+D6VQAAAABJRU5ErkJggg==" alt="New file in folder '{{folder_name}}'" title="New file in folder '{{folder_name}}'">
+        <img class="finder-button-change-password unselectable" draggable="false" ondragstart="return false;" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAC/SURBVDhPxY9LDgFBFEV7AX4R5myEuU8wYD/CsoQBttAWYIiJMObcqupOo6qJRJzkpN6r5N2qF/2SAa7w4lxiHz9ijjEqpOgc4Q5nmIte0XDFdI/oTiE90wXQt4e2TNnixpbmJ1oniPYt2DJl7RQlPNvSzwFrtvSSG9DGIzZM52eC3hU0rNdbpvNTxT12TZchNNzEOpZxjBqe4gtXVEgWhZ1QK2nnBXbQy82dCep9oUGyAaqfA9+SDH01/E+i6A4iWyrdP02atgAAAABJRU5ErkJggg==" alt="Change password for folder '{{folder_name}}'" title="Change password for folder '{{folder_name}}'">
+        <span class="finder-filename"><span class="filename" title="{{folder_name}}">{{folder_name}}</span></span>
+    </div>
+    <div class="finder-row-extra"></div>
+{{/each}}
+</script></div>
+
+<script id="finder-file-template" type="text/x-handlebars-template">
+{{#each files}}
+    <div class="finder-row finder-row-indent" data-folder-name="{{../folder_name}}" data-file-name="{{file_name}}">
+        <img class="unselectable" draggable="false" ondragstart="return false;" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABbSURBVDhPYxh0oBWIfwLxfzT8FYjtgZggAGkWhDBRAMiQ10BM0BCQQmwAJA7STNAQfAbAMMg7OAEuA5ABXjWjBlDBAFwJCQZAciA1OAGupAzDILkmIB40gIEBALM1KTUtqLyjAAAAAElFTkSuQmCC">
+        <img class="finder-button-run-file unselectable" draggable="false" ondragstart="return false;" tabindex="0" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAD7SURBVDhPtZNNTgJBEEZb1v6sWchWhYu4IuAROASiG0+iiCHhBASOQbgCEdi7FvheTZUOKJkY5CUvU9VTPVPd05OORU0+yK5LXJWFXMi+XMm5HLrEjHHvXP4KkydyJuvyRAbETfkuqaH2BwPJ5EvLUir7NQ/3qOlZloP10SJvDj7kkzy17Bs6ofbaMudR0l6+7bXL+luyJIErYx3LnBc5zsIv4gHhVN5KoPY5CzMOfsBfl7CQ95Y5N5KNaViWsW8T7+Sn3NpE4JAUfcaKpKNXy3aIg8RS+FTRMhAzxmRq9p7GMxlHmXWO3KWk7TdJTSFXkk2Kn6ntY/9NShszrEWunkE+AwAAAABJRU5ErkJggg==">
+        <span class="finder-filename"><span class="filename" title="{{file_name}}">{{file_name}}</span></span>
+    </div>
+{{/each}}
+</script>
+
+<div id="finder-new-file-name" class="finder-file-name-box">
+<input type="text" id="finder-new-file-name-input" class="filename">
+</div>
+
+<div id="new-folder-modal" class="modal">
+    <div class="new-folder-modal">
+        <span  class="modal-cancel">&times;</span>
+        <br>
+        <h1>Create New Folder</h1>
+        <br>
+        <label for="new-folder-name">Folder Name:</label>
+        <input type="text" id="new-folder-name" class="modal-focus" size="20">
+        <br>
+        <label for="new-folder-password">Password:</label>
+        <input type="password" id="new-folder-password" minlength="1" maxlength="32" size="20">
+        <br>
+        <label for="new-folder-password2">Confirm password:</label>
+        <input type="password" id="new-folder-password2" maxlength="32" size="20">
+        <br><br>
+        <input class="modal-button" type="button" id="new-folder-create" value="Create Folder">
+        <br>
+        <span id="new-folder-error" class="finder-error-message"></span>
+        <br><br>
+        <span><u>PLEASE NOTE:</u><br>There is no way<br>to recover<br>lost passwords.</span>
+    </div>
+</div>
+
+<div id="ask-password-modal" class="modal">
+    <div class="new-folder-modal">
+        <span  class="modal-cancel">&times;</span>
+        <br>The folder
+        <span id="ask-password-folder-name" class="filename"></span>
+        <br>is password protected.<br><br>Enter the password below:
+        <br><br>
+        <label for="ask-password-password">Folder password:</label>
+        <input type="password" id="ask-password-password" minlength="1" maxlength="32" size="20" class="modal-focus">
+        <br><br>
+        <input class="modal-button" type="button" value="OK">
+        <br>
+        <span id="ask-password-error" class="finder-error-message"></span>
+    </div>
+</div>
+
+<div id="change-password-modal" class="modal">
+    <div class="new-folder-modal">
+        <span  class="modal-cancel">&times;</span>
+        Change password for folder
+        <span id="change-password-folder-name" class="filename"></span>
+        <br><br>
+        <label for="change-password1">Current password:</label>
+        <input type="password" id="change-password1" minlength="1" maxlength="32" size="20" class="modal-focus">
+        <br><br>
+        <label for="change-password2">New password:</label>
+        <input type="password" id="change-password2" minlength="1" maxlength="32" size="20">
+        <br><br>
+        <label for="change-password3">Confirm password:</label>
+        <input type="password" id="change-password3" minlength="1" maxlength="32" size="20">
+        <br><br>
+        <input class="modal-button" type="button" value="Change Password">
+        <br>
+        <span id="change-password-error" class="finder-error-message"></span>
+    </div>
+</div>
+
+</body></html>

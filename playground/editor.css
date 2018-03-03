@@ -1,0 +1,33 @@
+
+#editor-section {
+    height: 100%;
+    width: 80vw;
+}
+
+#editor-placeholder {
+    display: none;
+}
+
+#editor-section .CodeMirror {
+    font-family: Lucida Console, monaco, Courier New, monospace;
+    font-size: 16pt;
+    height: 100%;
+    width: 100%;
+}
+
+#editor-section .CodeMirror-linenumber {
+    font-size: 12pt;
+    padding-top: 3pt;
+}
+
+/*
+ * mobile
+ */
+
+@media only screen and (max-device-width: 768px) {
+
+#editor-section {
+    width: 100vw;
+}
+
+}

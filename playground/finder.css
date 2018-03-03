@@ -1,0 +1,148 @@
+
+#finder-section {
+    height: 100%;
+    background-color: rgb(235,237,239);
+    overflow: scroll;
+}
+
+.finder-filename {
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+    width: 14vw;
+}
+
+.finder-row-indent .finder-filename {
+    width: 10vw;
+}
+
+.program-title {
+    font-family: Impact;
+    letter-spacing: 1.5pt;
+    text-align: center;
+    color: red;
+}
+
+.finder-caption {
+    position: relative;
+}
+
+.finder-caption h2 {
+    display: inline;
+    font-family: Arial Black;
+    font-size: 0.13in;
+    color: gray;
+}
+
+.finder-caption img {
+    position: absolute;
+    cursor: pointer;
+}
+
+#finder-button-new-folder, .finder-button-new-file,
+.finder-button-run-file, .finder-button-change-password,
+.finder-button-clear-recent {
+    right: 8%;
+}
+
+.finder-button-new-file, .finder-button-run-file,
+.finder-button-change-password {
+    position: relative;
+    float: right;
+    display: none;
+}
+
+/*.finder-button-change-password {
+    position: relative;
+    float: right;
+    right: 12%;
+    display: none;
+}*/
+
+div.finder-row:hover img.finder-button-run-file {
+    display: inline;
+}
+
+.finder-row {
+    cursor: pointer;
+    padding-top: 3%;
+    padding-bottom: 3%;
+    overflow-x: hidden;
+}
+
+div.finder-row:hover {
+    background-color: rgb(199,203,209);
+}
+
+.finder-row img, .finder-row img {
+    vertical-align: bottom;
+}
+
+.finder-row-indent img {
+    padding-left: 10%;
+}
+
+.finder-file-name-box {
+    display: none;
+    padding-left: 10%;
+    padding-right: 20%;
+}
+
+.finder-file-name-box input {
+    width: 100%;
+}
+
+/*
+ * dialogs
+ */
+
+/* New Folder: button and model dialog box */
+
+.new-folder-modal {
+    font-family: Arial;
+    font-size: 11pt;
+    line-height: 15pt;
+    background-color: #40cccc;
+    margin: 5% auto;
+    padding: 20px;
+    border: 4px solid #888;
+    width: 50%;
+    text-align: center;
+}
+
+.new-folder-modal h1 {
+    font-weight: bold;
+    text-decoration: underline;
+}
+
+.new-folder-modal .modal-button {
+    padding: 2pt 16pt 2pt 16pt;
+}
+
+.finder-error-message {
+    background-color: red;
+    color: white;
+}
+
+/*
+ * mobile
+ */
+
+@media only screen and (max-device-width: 768px) {
+
+div.finder-row img.finder-button-run-file {
+    display: inline;
+}
+
+.finder-filename {
+    width: 80vw;
+}
+
+.finder-row-indent .finder-filename {
+    width: 68vw;
+}
+
+.new-folder-modal {
+    width: 80%;
+}
