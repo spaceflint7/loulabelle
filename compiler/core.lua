@@ -4,8 +4,7 @@ JavaScript("public var $L={\z
             strcoll:new Intl.Collator().compare,\z
             co:{stack:[]},\z
             chunk:function(f){f().next()},\z
-            func:function(f,e,fl,ln){[f.self,f.env,f.file,f.line]=[f,e,fl,ln];return f}\z
-            }")
+            func:function(f,e,ev,fl,ln){[f.self,f.env,f.eval,f.file,f.line,f.fast]=[f,e,ev,fl,ln,function(...a){return $L.fastcall(f)(...a)}];return f}}")
 
 --
 -- call(name,func,args...)
@@ -15,10 +14,10 @@ JavaScript("$L.call=$1", function(name, func, ...)
     -- if last element of args is an array, merge it into the end of the args array.
     -- and if it is an empty array, then just discard the last element of args.
     JavaScript("var n=$1.length-1,r=$1[n]", ...)
-    JavaScript("if(typeof r==='object'){")
+    JavaScript("if(Array.isArray(r)){")
     JavaScript("var j=r.length")
     JavaScript("if(j>0){for(var i=0;i<j;i++)$1[n+i]=r[i]}", ...)
-    JavaScript("else if(j===0)$1.pop()}", ...)
+    JavaScript("else $1.pop()}", ...)
     -- determine the target function
     JavaScript("if(!$1||!$1.self)$1=yield*$L.resolve($1,$2)", func, name)
     -- invoke the function.  note that using f.apply(undefined,a) is faster than f(...a)
@@ -368,9 +367,9 @@ JavaScript("$L.table=$1", function(a,n1,n2)
                         }\z
                     }\z
                     for(k=0;k<$3;){t.array[++k]=$1[i++]}\z
-                    if(typeof (v=t.array[k])==='object'){\z
+                    if(Array.isArray(v=t.array[k])){\z
                         if(($3=v.length)>0){for(i=0;i<$3;i++)t.array[k+i]=v[i]}\z
-                        else if($3===0)t.array.pop()}\z
+                        else t.array.pop()}\z
                 }", a, n1, n2)
     JavaScript("return t")
 end)
@@ -663,12 +662,20 @@ end
 -- next
 --
 
+JavaScript("$L.anext=function(){\z
+    var k=this.index++;\z
+    if(k>=this.keys.length)return{done:true};\z
+    k=this.keys[k];\z
+    var v=this.array[k];\z
+    if(typeof k!=='number')k=$L.tonumber(k).next().value;\z
+    return{value:[k,v]}};")
+
 JavaScript("$L.next=$1", function(t, k)
     JavaScript("var it,nx")
 
     -- case #1, if k is nil, restart iterating from the top of the array part
     JavaScript("if($1===undefined){", k)
-    JavaScript(     "it=$1.array.entries()", t)
+    JavaScript(     "it={array:$1.array,keys:Object.keys($1.array),index:0,next:$L.anext};", t)
     JavaScript(     "$1.iter=[it,true]}", t)    -- [iterator,is_array_part,curr_key]
 
     -- case #2, k equals the curr_key, so we have nothing further to do
@@ -679,11 +686,11 @@ JavaScript("$L.next=$1", function(t, k)
     -- that iterator as if we created it in case #1
     JavaScript("else{")
     JavaScript(     "if(typeof $1==='number'){", k)
-    JavaScript(         "it=$1.array.entries()", t)
-    JavaScript(         "$1.iter=[it,true]}", t)
+    JavaScript(     "it={array:$1.array,keys:Object.keys($1.array),index:0,next:$L.anext};", t)
+    JavaScript(         "$1.iter=[it,true]}", t)-- is_array_part = true
     JavaScript(     "else{")
     JavaScript(         "it=$1.hash.entries()", t)
-    JavaScript(         "$1.iter=[it,false]}", t)
+    JavaScript(         "$1.iter=[it,false]}", t)-- is_array_part = false
     JavaScript(     "do{")
     JavaScript(         "nx=it.next()")
     JavaScript(         "if(nx.done){")
@@ -788,7 +795,7 @@ JavaScript("$L.xpcall=$1", function(msgh, func, args)
     JavaScript(         "if(t[0])r=t[1]}")
     JavaScript(     "r=[false,r]")
     JavaScript(     "while($L.co.stack.length>stklen)$L.co.stack.pop()}")
-    JavaScript("$L.protected--")
+    JavaScript("$L.co.protected--")
     JavaScript("return r")
 end)
 
@@ -815,8 +822,8 @@ load = function(func, source, mode, env)
     JavaScript("var src=$1.toString()", func)
     JavaScript("var idx=src.indexOf('(')")
     JavaScript("src=\"'use strict';return function*func\"+src.substring(idx)")
-    JavaScript("var f=Function(src)()")
-    JavaScript("[f.self,f.env,f.file,f.line]=[f,$2,$1.file,$1.line]", func, env)
+    JavaScript("var f=($1.eval===undefined)?Function(src)():$1.eval('(function(){'+src+'})()')", func)
+    JavaScript("[f.self,f.env,f.eval,f.file,f.line]=[f,$2,$1.eval,$1.file,$1.line]", func, env)
     JavaScript("return[f]")
 end
 
@@ -1251,7 +1258,7 @@ string = {
     endswith = function(str, sfx, len)
         ::update_stack_frame::
         JavaScript("var str=yield*$L.checkstring($1,1)", str)
-        JavaScript("var pfx=yield*$L.checkstring($1,2)", pfx)
+        JavaScript("var sfx=yield*$L.checkstring($1,2)", sfx)
         JavaScript("if($1===undefined)return[str.endsWith(sfx)]", len)
         JavaScript("var len=(yield*$L.checknumber($1,3))", len)
         JavaScript("return[str.endsWith(sfx,len)]")
@@ -1657,7 +1664,7 @@ table = {
         ::update_stack_frame::
         JavaScript("yield*$L.checktable($1,1)", tbl)
         JavaScript("var cmp=$1", cmp)
-        JavaScript("if(cmp===undefined)cmp=$L.cmplt")
+        JavaScript("if(cmp===undefined)cmp=$L.qsort_dflt")
         JavaScript("else yield*$L.checkfunction(cmp,2)")
         JavaScript("var a=$1.array", tbl)
         JavaScript("yield*$L.qsort_array(a,1,a.length-1,cmp)")
@@ -1676,6 +1683,10 @@ table = {
 -- table.sort helper: qsort_array,
 -- ported from ltablib.c in the official implementation
 --
+
+JavaScript("$L.qsort_dflt=$1", function(a,b)
+    JavaScript("return[yield*$L.cmplt($1,$2)]", a, b)
+end)
 
 JavaScript("$L.qsort_array=$1", function(a,l,u,cmp)
     JavaScript("var i,j,r,p,a=$1,l=$2,u=$3,cmp=$4",a,l,u,cmp)
@@ -1843,6 +1854,11 @@ end)
 
 os = {
 
+    clock = function()
+        ::update_stack_frame::
+        JavaScript("return[performance.now()/1000]")
+    end,
+
     date = function(fmt, tm)
         ::update_stack_frame::
         JavaScript("var dt,utc,idx")
@@ -1919,6 +1935,15 @@ os = {
         return locale
     end,
 }
+
+-- override os.clock in node.js
+JavaScript("if(typeof performance!=='object'&&typeof process=='object'&&typeof process.hrtime=='function'){")
+os.clock = function()
+    ::update_stack_frame::
+    JavaScript("var r=process.hrtime()")
+    JavaScript("return[r[0]+r[1]/1e9]")
+end
+JavaScript("}")
 
 --
 -- coroutine library
@@ -2073,16 +2098,27 @@ coroutine = {
         JavaScript("return[co]")
     end,
 
-    jscallback = function(func, ...)
+    jscallback = function(callback, ...)
         ::update_stack_frame::
-        JavaScript("yield*$L.checkfunction($1,1)", func)
-        JavaScript("var stack=[],func=$1,arg1=$2", func, ...)
+        JavaScript("yield*$L.checkfunction($1,1)", callback)
+        JavaScript("var callback=$1,arg1=$2", callback, ...)
+        -- fastcall version, no coroutine context
+        JavaScript("if(func.fast===func){")
+        JavaScript(     "callback=$L.fastcall(callback)")
+        JavaScript(     "return[function(...arg2){\z
+                            var co0=$L.co;\z
+                            $L.co={stack:[]};\z
+                            var r=callback.apply(undefined,arg1.concat(arg2));\z
+                            $L.co=co0;\z
+                            return r}]}")
+        -- normal version, create coroutine context
+        JavaScript("var stack=[]")
         JavaScript("for(var i=0;i<$L.co.stack.length;i++)\z
                 stack[i]=$L.co.stack[i].slice()")
         JavaScript("return[function(...arg2){\z
             var co0=$L.co;\z
             $L.co={};\z
-            var co=$L.cocreate(func).next().value[0];\z
+            var co=$L.cocreate(callback).next().value[0];\z
             co.protected=-1;\z
             co.resume_result=true;\z
             for(var i=0;i<stack.length;i++)\z
@@ -2090,7 +2126,7 @@ coroutine = {
             co.resume(arg1.concat(arg2));\z
             var r=co.resume_result;\z
             $L.co=co0;\z
-            if(typeof r==='object'&&r[0]===true)return r[1]}]")
+            if(Array.isArray(r)&&r[0]===true)return r[1]}]")
     end,
 
     jsconvert = function(jsobj, luatab)
@@ -2110,6 +2146,8 @@ coroutine = {
                 JavaScript(     "if(typeof v==='object'){")
                                     v = helper({}, v)
                 JavaScript(     "}")
+                                local kn = tonumber(k)
+                                if kn then k = kn end
                                 luatable[k] = v
                 JavaScript("}")
                 return luatable
@@ -2135,17 +2173,29 @@ coroutine = {
         end
     end,
 
+    --[[jshost = function()
+        JavaScript("if(!!(typeof window!=='undefined'&&typeof navigator!=='undefined'&&window.document)){")
+        JavaScript("return['browser']}")
+        JavaScript("if(typeof importScripts!=='undefined'){")
+        JavaScript("return['worker']}")
+        JavaScript("try{if(this===global)return['node']}catch(e){}")
+        JavaScript("return['unknown']")
+    end,]]
+
     fastcall = function(func, ...)
         ::update_stack_frame::
         JavaScript("var co=$L.co.luacoroutine")
         JavaScript("$L.co.luacoroutine=undefined")
+        JavaScript("var r")
         JavaScript("try{")
-        JavaScript(     "($L.call.fast||$L.fastcall($L.call))('?',$1,$2)}", func, ...)
+        JavaScript(     "r=($L.call.fast||$L.fastcall($L.call))('?',$1,$2)}", func, ...)
         JavaScript("catch(x){")
         JavaScript(     "$L.co.luacoroutine=co")
-        JavaScript(     "if(typeof x==='object'&&typeof x.stack==='string'&&typeof x.message==='string'){console.error(x);x='JS '+x.message+\" in a function processed by 'fastcall'\"}")
-        JavaScript(     "yield*$L.error(x)}")
+        JavaScript(     "if(typeof x==='object'&&typeof x.stack==='string'&&typeof x.message==='string'){console.error(x);x='JS '+x.message}")
+        JavaScript(     "if(typeof x==='string')x+=' ('+$L.fastcall_error_suffix+')'")
+        JavaScript(     "throw x}")
         JavaScript("$L.co.luacoroutine=co")
+        JavaScript("return r")
     end,
 
     mutex_metatable = { __index = {
@@ -2212,7 +2262,7 @@ JavaScript("[$L.cocreate,$L.coresume,$L.cosuspend,$L.cowrap]=[$1,$2,$3,$4]",
 -- require() and package table
 --
 
-package = { loaded = {}, JavaScript = true, Loulabelle = 5201 }
+package = { loaded = {}, JavaScript = true, Loulabelle = 5202 }
 
 require = function(module)
     ::update_stack_frame::
@@ -2252,8 +2302,9 @@ JavaScript("$L.require_lua=$1", function(url)
     JavaScript(     "yield*$L.cosuspend()")
     JavaScript(     "elem.require_chunk=undefined")
     JavaScript("}else{")
-    -- otherwise we are in a web worker or running undernode.js,
-    -- which load the script synchronously
+    -- otherwise we are in a web worker,
+    -- or running under node.js,
+    -- both load the script synchronously
     JavaScript(     "if($L.require_chunk!==undefined)yield*$L.error('attempting to load more than one chunk at once')")
     JavaScript(     "$L.require_chunk=chunk")
     JavaScript(     "try{")
@@ -2338,17 +2389,17 @@ JavaScript("$L.fastcall=function(func){\z
     var src=$L.fastcall_convert(func.toString());\z
     var idx1=src.indexOf('*');\z
     var idx2=src.indexOf('{');\z
-    if(src.substr(idx2+1,5)==='/*U*/')$L.fastcall_error('upvalue reference');\z
     if(idx1>7&&idx1<idx2)src=src.substring(0,idx1)+' '+src.substring(idx1+1);\z
-    src=\"'use strict';return \"+src.substring(0,idx2+1)+'var t0;'+src.substring(idx2+1);\z
-    var fast=Function(src)();\z
-    [func.fast,fast.self,fast.env,fast.file,fast.line]=[fast,fast,func.env,func.file,func.line];\z
+    src=\"'use strict';return \"+src;\z
+    var fast=(func.eval===undefined)?(Function(src)()):func.eval('(function(){'+src+'})()');\z
+    [func.fast,fast.self,fast.fast,fast.env,fast.file,fast.line]=[fast,fast,fast,func.env,func.file,func.line];\z
     return fast};")
 
-JavaScript("$L.fastcall_regex1=new RegExp('\\'|\\\"|yield\\*|[$$]frame[[]0]=[0-9]+;','g')")
+JavaScript("$L.fastcall_regex1=new RegExp('\\'|\\\"|yield\\*','g')")
 JavaScript("$L.fastcall_regex2=new RegExp('[a-zA-Z0-9$$_.]')")
 
-JavaScript("$L.fastcall_error=function(e){$L.error(e+\" in a function processed by 'fastcall'\").next()};")
+JavaScript("$L.fastcall_error_suffix=\"in a function processed by 'fastcall'\"")
+JavaScript("$L.fastcall_error=function(e){$L.error(e+' '+$L.fastcall_error_suffix).next()};")
 
 JavaScript("$L.fastcall_convert=function(src){\z
     var txt='',idx=0,len;\z
@@ -2362,8 +2413,6 @@ JavaScript("$L.fastcall_convert=function(src){\z
             len=$L.fastcall_quote(src,idx,r[0]);\z
             txt+=src.substr(idx,len);\z
             idx+=len;\z
-        }else if(r[0].charAt(0)==='$$'){\z
-            idx+=r[0].length;\z
         }else{\z
             idx+=6;\z
             if(src.charAt(idx)==='(')\z
@@ -2373,7 +2422,7 @@ JavaScript("$L.fastcall_convert=function(src){\z
             var callee=src.substr(idx,len).trim(),suffix=callee.substr(-6);\z
             if(suffix==='.apply')callee=callee.substring(0,callee.length-6);else suffix='';\z
             if(callee==='')$L.fastcall_error('cannot determine yield* callee');\z
-            txt+='(t0='+$L.fastcall_convert(callee)+',t0.fast||$L.fastcall(t0))'+suffix;\z
+            txt+='('+$L.fastcall_convert(callee)+'.fast)'+suffix;\z
             idx+=len;\z
         }}};")
 
@@ -2431,7 +2480,7 @@ JavaScript("$L.chunk=function(f){\z
     var co=$L.cocreate(f).next().value[0];\z
     co.main=true;\z
     co.protected=-1;\z
-    co.resume(args)}")
+    co.resume(args)};")
 
 --
 -- note that the dummy label ::update_stack_frame:: is only used to

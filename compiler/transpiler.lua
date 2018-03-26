@@ -23,6 +23,7 @@ return function(source_name, source_text, source_options)
         tree.debug = source_options.debug == nil and true or source_options.debug
         tree.JavaScript = source_options.JavaScript == nil and true or source_options.JavaScript
         tree.globals = source_options.globals == nil and true or source_options.globals
+        tree.assumes = source_options.assumes == nil and true or source_options.assumes
 
         result, err = Emitter.generate(tree)
     end
@@ -36,8 +37,7 @@ return function(source_name, source_text, source_options)
             result = result:sub(idx1, idx2)
             JavaScript("try{var f=Function('return '+$1)()}catch(e){$2=e.toString()}", result, err)
             if not err then
-                JavaScript("[f.self,f.env,f.file,f.line]=[f,$1,$2,1]", source_options.env, source_name)
-                JavaScript("$1=f", result)
+                JavaScript("$3=$L.func(f,$1,undefined,$2,1)", source_options.env, source_name, result)
             end
 
         else

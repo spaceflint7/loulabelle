@@ -32,6 +32,7 @@ function class.generate(tree)
     self.debug = tree.debug
     self.JavaScript = tree.JavaScript
     self.globals = tree.globals
+    self.assumes = tree.assumes
 
     self.jsyield     = "yield*" .. self.jsobject .. "."
     self.jsyieldget  = "(" .. self.jsyield .. "get("
@@ -135,9 +136,6 @@ function class:func_body(stmt, is_main_chunk, func_line)
     local save_env_node_used = self.env_var_node.used
     self.env_var_node.used = is_main_chunk
 
-    local save_upvalue_ref = self.upvalue_ref
-    self.upvalue_ref = nil
-
     self:process_block(stmt, is_main_chunk, true)
 
     --
@@ -175,22 +173,29 @@ function class:func_body(stmt, is_main_chunk, func_line)
         self.text[var_pos2] = self.text[var_pos2] .. var_line .. ";"
     end
 
-    if self.debug and self.upvalue_ref then
-        table.insert(self.text, var_pos1, "/*U*/")
-    end
-
     --
     -- end the function and its local scope
     --
 
-    self.upvalue_ref = save_upvalue_ref
-    self.env_var_node.used = save_env_node_used
-
     self.locals:pop()
     self:putln()
     self:put("},")
-    self:put(is_main_chunk and (self.jsobject .. ".env") or "func.env")
 
+    -- second parameter, the environment
+    self:put(is_main_chunk and (self.jsobject .. ".env") or "func.env")
+    self.env_var_node.used = save_env_node_used
+
+    -- second parameter, the closure function
+    if self.debug or self.upvalue_ref then
+        self:put(",")
+        if self.upvalue_ref and not is_main_chunk then
+            self:put("function(s){return eval(s)}")
+        else
+            self:put("undefined")
+        end
+    end
+
+    -- fourth and fifth parameters, filename and linenum
     if self.debug then
         self:put(",")
         if is_main_chunk then
@@ -276,15 +281,17 @@ function class:process_block(stmt, is_main_chunk, is_function_start)
 
         self:putln()
 
-        if self.JavaScript and stmt.type == "call"
-            and stmt.func.type == "var"
-            and stmt.func.var == "JavaScript" then
+        local macro = stmt.type == "call"
+                    and stmt.func.type == "var"
+                    and stmt.func.var
 
-            --if self.JavaScript == false then
-            --    self.error = "JavaScript statement not permitted"
-            --else
-                self:javascript_stmt(stmt.args)
-            --end
+        if self.JavaScript and macro == "JavaScript" then
+
+            self:javascript_stmt(stmt.args)
+
+        elseif self:is_assume_macro(macro) then
+
+            self:assume_stmt(macro, stmt.args)
 
         else
 
@@ -324,6 +331,7 @@ function class:process_block(stmt, is_main_chunk, is_function_start)
             elseif stmt.type == "call" or stmt.type == "method" then
                 local s = self:expr(stmt)
                 if s:sub(1,1) == "(" then s = s:sub(2,-2) end
+                if s:sub(-4,-1) == "||[]" then s = s:sub(1,-5) end
                 self:put(s)
                 self:put(";")
 
@@ -443,12 +451,17 @@ function class:assign_stmt(stmt)
 
     local vals = {}
     local multivals = {}
+    local valtypes = {}
     local nvals = 0
 
     local val = stmt.vals
     while val do
         nvals = nvals + 1
         vals[nvals], multivals[nvals] = self:expr(val)
+        local known = val.known or val.type
+        if known == "num" or known == "str" or known == "fun" or known == "nom" then
+            valtypes[nvals] = known
+        end
         val = val.next
         if self.error then return end
     end
@@ -517,13 +530,57 @@ function class:assign_stmt(stmt)
 
             if var_name:sub(1,#self.jsyieldget) == self.jsyieldget then
 
-                self:put(self.jsyield)
-                self:put("s")   -- 'set' instead of 'get'
-                self:put(var_name:sub(#self.jsyieldget-2,-3))
-                if not self.debug then self:put(",undefined") end
-                self:put(",")
-                self:put(var_value)
-                self:put(");")
+                local set_call = true
+
+                --
+                -- if the table is assumed as nometa,
+                -- and the key is known, set directly
+                --
+
+                if var.table and var.table.known == "nom" then -- nometatable
+                    local index_type = var.index and (var.index.known or var.index.type)
+                    if index_type == "num" then
+                        self:put(self:expr(var.table))
+                        self:put(".array[")
+                        self:put(self:expr(var.index))
+                        self:put("]=")
+                        self:put(var_value)
+                        self:put(";")
+                        set_call = false
+                    elseif index_type == "str" or var.field then
+                        self:put(self:expr(var.table))
+                        self:put(".hash.set(")
+                        if var.field then
+                            self:put("'")
+                            self:put(var.field.var)
+                            self:put("'")
+                        else
+                            self:put(self:expr(var.index))
+                        end
+                        self:put(",")
+                        self:put(var_value)
+                        self:put(");")
+                        set_call = false
+                    end
+                end
+
+                --
+                -- table is not assumed as nometa,
+                -- so it may have a metatable, or
+                -- we don't know the type of the key,
+                -- then access indirectly via $L.set
+                --
+
+                if set_call then
+
+                    self:put(self.jsyield)
+                    self:put("s")   -- 'set' instead of 'get'
+                    self:put(var_name:sub(#self.jsyieldget-2,-3))
+                    if not self.debug then self:put(",undefined") end
+                    self:put(",")
+                    self:put(var_value)
+                    self:put(");")
+                end
 
             else
 
@@ -531,6 +588,11 @@ function class:assign_stmt(stmt)
                 self:put("=")
                 self:put(var_value)
                 self:put(";")
+
+                local type_index = var_index
+                if type_index > nvals then type_index = nvals end
+                self.locals:set("%" .. var_name, valtypes[type_index])
+
             end
 
             if var.next then self:putln() end
@@ -543,6 +605,30 @@ function class:assign_stmt(stmt)
 
     self:get_set_temp_var(save_tmp_var)             -- restore
 
+end
+
+
+function class:assume_stmt(stmt_name, args)
+
+    local assume_type = stmt_name:sub(8,10)
+    local arg = args
+
+    while true do
+
+        local var_name
+        if arg and arg.type == "var" then
+            var_name = self.locals:get(arg.var)
+        end
+        if not var_name then break end
+
+        self.locals:set("%" .. var_name, assume_type)
+
+        arg = arg.next
+        if not arg then return end
+
+    end
+
+    self.error = "Invalid local variable reference in " .. stmt_name .. " statement"
 end
 
 
@@ -757,6 +843,9 @@ end
 
 function class:for_stmt(stmt)
 
+    self.locals:push()
+    self.sub_block_level = self.sub_block_level - 1 -- keep same indent
+
     local for_depth = self.locals:get("%") + 1
     self.locals:set("%", for_depth)
     local xvar = "x" .. tostring(for_depth)
@@ -770,11 +859,13 @@ function class:for_stmt(stmt)
     end
 
     self.sub_block_level = self.sub_block_level - 1
-
     self:putln()
-    self:put("}")
+    self:put("};")
+    self.sub_block_level = self.sub_block_level + 1
 
-    self.locals:set("%", for_depth - 1)
+    --self.locals:set("%", for_depth - 1)
+
+    self:pop_locals_keep_temp()
 
 end
 
@@ -845,7 +936,9 @@ function class:for_generic(stmt, xvar, yvar, zvar)
         if self.error then return end
     end
 
+    self.sub_block_level = self.sub_block_level - 1
     self:process_sub_block(stmt["block"], 0, 1, true)
+    self.sub_block_level = self.sub_block_level + 1
     self:pushlbl(label_pos, stmt.label)
 
 end
@@ -860,11 +953,12 @@ function class:for_numeric(stmt, xvar, yvar, zvar)
 
     local initial = self:expr(stmt.initial)
     self:put(xvar .. "=" .. initial .. ";")
-    if stmt.initial.type ~= "num" then
-        self:put("if(typeof " .. xvar .. "!=='number')")
+    if stmt.initial.type ~= "num" and stmt.initial.known ~= "num" then
+        self:putln()
+        self:put("if(typeof " .. xvar .. "!=='number'){")
         self:put(xvar .. "=" .. self.jsyield .. "tonumber(" .. xvar .. ");")
         self:putln()
-        self:put("if(" .. xvar .. "===undefined)" .. self.jsyield .. "error_for1();")
+        self:put("if(" .. xvar .. "===undefined)" .. self.jsyield .. "error_for1()};")
         initial = nil
     end
     self:putln()
@@ -874,11 +968,14 @@ function class:for_numeric(stmt, xvar, yvar, zvar)
         yvar = tonumber(limit)
     else
         self:put(yvar .. "=" .. limit .. ";")
-        self:put("if(typeof " .. yvar .. "!=='number')")
-        self:put(yvar .. "=" .. self.jsyield .. "tonumber(" .. yvar .. ");")
         self:putln()
-        self:put("if(" .. yvar .. "===undefined)" .. self.jsyield .. "error_for2();")
-        self:putln()
+        if stmt.limit.known ~= "num" then
+            self:put("if(typeof " .. yvar .. "!=='number'){")
+            self:put(yvar .. "=" .. self.jsyield .. "tonumber(" .. yvar .. ");")
+            self:putln()
+            self:put("if(" .. yvar .. "===undefined)" .. self.jsyield .. "error_for2()};")
+            self:putln()
+        end
     end
 
     local zvar_const = true
@@ -888,17 +985,20 @@ function class:for_numeric(stmt, xvar, yvar, zvar)
             zvar = tonumber(step)
         else
             self:put(zvar .. "=" .. step .. ";")
-            self:put("if(typeof " .. zvar .. "!=='number')")
-            self:put(zvar .. "=" .. self.jsyield .. "tonumber(" .. zvar .. ");")
             self:putln()
-            self:put("if(" .. zvar .. "===undefined)" .. self.jsyield .. "error_for3();")
-            self:putln()
+            if stmt.step.known ~= "num" then
+                self:put("if(typeof " .. zvar .. "!=='number'){")
+                self:put(zvar .. "=" .. self.jsyield .. "tonumber(" .. zvar .. ");")
+                self:putln()
+                self:put("if(" .. zvar .. "===undefined)" .. self.jsyield .. "error_for3()};")
+                self:putln()
+            end
             zvar_const = false
         end
     else zvar = 1 end
 
     local label_pos = #self.text + 1
-    self:put("while(")
+    self:put("for(;")
     if zvar_const then
         self:put(xvar)
         self:put((zvar > 0) and "<=" or ">=")
@@ -909,6 +1009,25 @@ function class:for_numeric(stmt, xvar, yvar, zvar)
         self:put("||")
         self:put("(" .. zvar .. "<=0&&" .. xvar .. ">=" .. yvar .. ")")
     end
+
+    self:put(";")
+    self:put(xvar)
+    if zvar_const and zvar < 0 then
+        if zvar == -1 then
+            self:put("--")
+        else
+            self:put("-=")
+            self:put(-zvar)
+        end
+    else
+        if zvar == 1 then
+            self:put("++")
+        else
+            self:put("+=")
+            self:put(zvar)
+        end
+    end
+
     self:put("){")
 
     self.sub_block_level = self.sub_block_level + 1
@@ -916,38 +1035,21 @@ function class:for_numeric(stmt, xvar, yvar, zvar)
 
     self.sub_block_level = self.sub_block_level - 1 -- keep same indent
 
-    self.locals:set(stmt.vars.var, "v" .. tostring(stmt.var_num))
+    local var_name = "v" .. tostring(stmt.var_num)
+    self.locals:set(stmt.vars.var, var_name)
+    self.locals:set("%" .. var_name, "num")
+
     self:put(self:expr(stmt.vars))
     self:put("=")
     self:put(xvar)
     self:put(";")
 
     local first_stmt_in_block = stmt["block"]
-    local last_stmt_in_block = first_stmt_in_block
-    if last_stmt_in_block then
-        while last_stmt_in_block.next do
-            last_stmt_in_block = last_stmt_in_block.next
-        end
-    end
 
     self:process_sub_block(first_stmt_in_block, 0, 1, true)
     self:pushlbl(label_pos, stmt.label)
 
     self.sub_block_level = self.sub_block_level + 1 -- restore indent
-
-    if (not last_stmt_in_block) or last_stmt_in_block.type ~= "return" then
-
-        self:putln()
-        self:put(xvar)
-        if zvar_const and zvar < 0 then
-            self:put("-=")
-            self:put(-zvar)
-        else
-            self:put("+=")
-            self:put(zvar)
-        end
-        self:put(";")
-    end
 
 end
 
@@ -968,7 +1070,7 @@ function class:expr(node)
 
         elseif node_type == "member" and node.table and (node.field or node.index) then
             local field = node.field and ("'" .. node.field.var .. "'")
-            return self:expr_get(node.table, field, node.index, node.in_assign)
+            return self:expr_member(node.table, field, node.index, node.in_assign)
 
         elseif node_type == "function" and not node.name then
             return self:expr_func(node)
@@ -981,6 +1083,9 @@ function class:expr(node)
             if var_name then
                 if node.var == self.env_var_node.var then
                     self.env_var_node.used = true
+                else
+                    local var_type = self.locals:get("%" .. var_name)
+                    if var_type then node.known = var_type end
                 end
                 local var_num = tonumber(var_name:sub(2))
                 if var_num and var_num < self.locals:get("##") then
@@ -994,7 +1099,7 @@ function class:expr(node)
                 return nil
             end
             self.env_var_node.used = true
-            return self:expr_get(self.env_var_node, "'" .. node.var .. "'", nil, in_assign)
+            return self:expr_member(self.env_var_node, "'" .. node.var .. "'", nil, in_assign)
 
         elseif node_type == "..." then
             local nm = self.locals:get(node_type)
@@ -1038,7 +1143,15 @@ function class:expr_method(node)
     node.type = "member"
 
     local table
-    if node.table.type == "var" then table = self.locals:get(node.table.var) end
+    if node.table.type == "var" then
+        table = self.locals:get(node.table.var)
+        if table then
+            local var_num = tonumber(table:sub(2))
+            if var_num and var_num < self.locals:get("##") then
+                self.upvalue_ref = true
+            end
+        end
+    end
     if not table then
         local node_table_expr = self:adjust_multival_expr(self:expr(node.table))
         local table_tmp = self:get_temp_var()
@@ -1079,6 +1192,25 @@ end
 
 function class:expr_call(node)
 
+    --
+    -- special function expressions
+    --
+
+    if node.func.type == "var" then
+
+        local macro = node.func.var
+        if self:is_assume_macro(macro) then
+
+            if not node.args then return "undefined" end
+            node.known = macro:sub(8,10)
+            return self:adjust_multival_expr(self:expr(node.args))
+        end
+    end
+
+    --
+    -- otherwise normal function call
+    --
+
     local s = "("
 
     local func = self:adjust_multival_expr(self:expr(node.func))
@@ -1089,7 +1221,17 @@ function class:expr_call(node)
 
     if self.debug or multival then
 
-        local func_debug_name = self.debug and self:debug_name(node) or "undefined"
+        local func_debug_name = "undefined"
+        if self.debug then
+
+            if node.func.type == "call"
+                    and node.func.func.type == "var"
+                    and self:is_assume_macro(node.func.func.var) then
+                func_debug_name = self:debug_name(node.func.args)
+
+            else func_debug_name = self:debug_name(node) end
+        end
+
         s = s .. self.jsyieldcall .. func_debug_name .. "," .. func
         if args ~= "" then s = s .. "," end
 
@@ -1098,7 +1240,7 @@ function class:expr_call(node)
         local func_var = (node.func.type == "var") and self.locals:get(node.func.var)
         if func_var then
             func = func_var
-        else
+        elseif node.func.known ~= "fun" then
             local node_func_expr = self:adjust_multival_expr(self:expr(node.func))
             local func_tmp = self:get_temp_var()
             s = s .. func_tmp .. "=" .. node_func_expr .. ","
@@ -1106,7 +1248,14 @@ function class:expr_call(node)
             if self.error then return "" end
         end
 
-        s = s .. "(yield*(typeof " .. func .. "==='function'&&" .. func .. ".self||(" .. self.jsyield .. "resolve(" .. func .. ")))("
+        if node.func.known == "fun" or (func_var and self.locals:get("%" .. func_var) == "fun") then
+            s = s .. "(yield*(" .. func .. ")("
+        else
+            s = s .. "(yield*(typeof " .. func .. "==='function'&&" .. func .. ".self||(" .. self.jsyield .. "resolve(" .. func .. ")))("
+        end
+
+        -- this form fails on Chrome on Android
+        --s = s .. "(yield*(yield*(" .. self.jsobject .. ".fn)(" .. func .. "))("
 
     end
 
@@ -1145,7 +1294,22 @@ function class:expr_func(node)
     self.text = {}
     self:func_head(node.args)
     if not self.error then
+
+        -- note that we clear the upvalue reference
+        -- flag before defining the sub-function, and
+        -- if it becomes enabled, we do not clear it,
+        -- and the flag will bubble up to all parent
+        -- functions.  this is required so containing
+        -- functions can always provide a func.eval
+        -- evaluator for use of their sub-functions
+
+        local save_upvalue_ref = self.upvalue_ref
+        self.upvalue_ref = nil
         self:func_body(node.block, false, node.line)
+        if not self.upvalue_ref then
+            self.upvalue_ref = save_upvalue_ref
+        end
+
         if not self.error then
             s = table.concat(self.text)
         end
@@ -1276,6 +1440,9 @@ function class:expr_op(node)
         local function temp_v() v = temp_v_(v,op) end
 
         local unary_op = function(op_type, op_name, op_func)
+            if op.known == op_type:sub(1, 3) then
+                return "(" .. op_func(v) .. ")"
+            end
             s = "("
             if is_sub_expr(op) then
                 temp_v()
@@ -1338,11 +1505,19 @@ function class:expr_op(node)
                 return "(" .. self.jsyield .. op_name .. "(" .. v1 .. "," .. v2 .. suffix
             end
 
+            local known1 = op1.known == const_type
+            local known2 = op2.known == const_type
+            if (known1 or const1) and (known2 or const2) then
+                v2 = self:expr(op2)
+                return "(" .. op_func(v1, v2) .. ")"
+            end
+
             s = "("
             temp_v()
+
             local check1, check2 = true, true
-            if const1 then check1 = false
-            elseif const2 then check2 = false
+            if const1 or known1 then check1 = false
+            elseif const2 or known2 then check2 = false
             elseif op1.var and op1.var == op2.var then check2 = false end
 
             if check1 then s = s .. "typeof " .. v1 .. "==='" .. op_type .. "'" end
@@ -1370,9 +1545,13 @@ function class:expr_op(node)
 
             s = "("
 
+            local known1 = op1.known
+            local known2 = op2.known
+
             if equality then
 
-                if const1 or const2 then
+                if const1 or const2
+                    or known1 ~= nil or known2 ~= nil then
 
                     v2 = self:expr(op2)
                     return op_func(v1, v2)
@@ -1390,14 +1569,20 @@ function class:expr_op(node)
             else
 
                 local num1, num2, str1, str2
-                num1 = op1.type == "num" and tonumber(op1.num)
-                num2 = op2.type == "num" and tonumber(op2.num)
-                str1 = op1.type == "str" and op1.str
-                str2 = op2.type == "str" and op2.str
+                num1 = (op1.type == "num" and tonumber(op1.num)) or (known1 == "num")
+                num2 = (op2.type == "num" and tonumber(op2.num)) or (known2 == "num")
+                str1 = (op1.type == "str" and op1.str) or (known1 == "str")
+                str2 = (op2.type == "str" and op2.str) or (known2 == "str")
 
-                if str1 and str2 then
+                if (num1 and num2) or (str1 and str2) then
 
-                    return op_func(str1, str2, true)
+                    -- both operands have same type
+                    return op_func(v1, self:expr(op2), (str1 and str2))
+
+                elseif (known1 or known2) and (known1 ~= known2) then
+
+                    -- operand have known different types
+                    v2 = self:expr(op2)
 
                 elseif (str1 and subexpr2) or (subexpr1 and str2) then
 
@@ -1427,9 +1612,10 @@ function class:expr_op(node)
 
             end
 
-            if negate then s = s .. negate .. "(" end
-            s = s .. self.jsyield .. op_name .. "(" .. v1 .. "," .. v2 .. suffix
-            if negate then s = s .. ")" end
+            s = s .. negate .. "("
+                  .. self.jsyield .. op_name .. "("
+                  .. v1 .. "," .. v2 .. suffix .. ")"
+            if s:sub(1,2) == "((" and s:sub(-2,-1) == "))" then s = s:sub(2,-2) end
 
             return s
         end
@@ -1544,27 +1730,36 @@ function class:expr_op_simplify(node)
         local str1 = op1_type == "str" and op1.str
         local str2 = op2_type == "str" and op2.str
 
+        local op1_known_num = num1 or (op1.known == "num")
+        local op2_known_num = num2 or (op2.known == "num")
+
         --
         -- arithmetic and concatenation operators
         --
 
         if node_type == "+" then
-            if num1 and num2 then num = num1 + num2 end
+            if num1 and num2 then num = num1 + num2
+            elseif op1_known_num and op2_known_num then node.known = "num" end
 
         elseif node_type == "-" then
-            if num1 and num2 then num = num1 - num2 end
+            if num1 and num2 then num = num1 - num2
+            elseif op1_known_num and op2_known_num then node.known = "num" end
 
         elseif node_type == "*" then
-            if num1 and num2 then num = num1 * num2 end
+            if num1 and num2 then num = num1 * num2
+            elseif op1_known_num and op2_known_num then node.known = "num" end
 
         elseif node_type == "/" then
-            if num1 and num2 and num2 ~= 0 then num = num1 / num2 end
+            if num1 and num2 and num2 ~= 0 then num = num1 / num2
+            elseif op1_known_num and op2_known_num then node.known = "num" end
 
         elseif node_type == "%" then
-            if num1 and num2 and num2 ~= 0 then num = num1 % num2 end
+            if num1 and num2 and num2 ~= 0 then num = num1 % num2
+            elseif op1_known_num and op2_known_num then node.known = "num" end
 
         elseif node_type == "^" then
-            if num1 and num2 then num = num1 ^ num2 end
+            if num1 and num2 then num = num1 ^ num2
+            elseif op1_known_num and op2_known_num then node.known = "num" end
 
         elseif node_type == ".." then
             if (str1 or num1) and (str2 or num2) then
@@ -1627,14 +1822,28 @@ function class:expr_op_simplify(node)
                 -- clone op1 if it is false/nil, otherwise
                 -- clone op2 if op1 is a known (true) constant
                 if nil1 or bool1 == false then copy = op1
-                elseif op1_const then copy = op2 end
+                elseif op1_const then copy = op2
+                else
+                    op1_type = op1.known or op1_type
+                    op2_type = op2.known or op2_type
+                    if op1_type == op2_type then
+                        node.known = op1_type
+                    end
+                end
 
             elseif node_type == "or" then
 
                 -- clone op2 if op1 is false/nil, otherwise
                 -- clone op1 if it is a known (true) constant
                 if nil1 or bool1 == false then copy = op2
-                elseif op1_const then copy = op1 end
+                elseif op1_const then copy = op1
+                else
+                    op1_type = op1.known or op1_type
+                    op2_type = op2.known or op2_type
+                    if op1_type == op2_type then
+                        node.known = op1_type
+                    end
+                end
 
             end
 
@@ -1652,11 +1861,15 @@ function class:expr_op_simplify(node)
         if node_type == "-" then
             if op1_type == "num" then
                 num = -op1.num
+            elseif op1.known == "num" then
+                node.known = op1.known
             end
 
         elseif node_type == "#" then
             if op1_type == "str" then
                 num = #op1.str - 2
+            elseif op1.known == "str" then
+                node.known = "num"
             end
 
         elseif node_type == "not" then
@@ -1669,6 +1882,35 @@ function class:expr_op_simplify(node)
                     node.operand = sub_op.operand
                 end
             end
+        end
+
+    elseif node_type == "var" then
+
+        --
+        -- record known type of variable in its node
+        --
+
+        local node_var = node.var
+        if node_var then
+            local var_name = self.locals:get(node_var)
+            if var_name then
+                local var_type = self.locals:get("%" .. var_name)
+                if var_type then node.known = var_type end
+            end
+        end
+
+    elseif node_type == "call" then
+
+        --
+        -- if assume_number or assume_string,
+        -- record the type being assumed, and
+        -- discard the assume call node
+        --
+
+        local macro = node.func.var
+        if self:is_assume_macro(macro) then
+            copy = node.args
+            copy.known = macro:sub(8,10)
         end
 
     end
@@ -1708,7 +1950,7 @@ function class:expr_op_simplify(node)
 end
 
 
-function class:expr_get(table_node, field_name, index_node, in_assign)
+function class:expr_member(table_node, field_name, index_node, in_assign)
 
     table_node.parens = true
 
@@ -1719,10 +1961,36 @@ function class:expr_get(table_node, field_name, index_node, in_assign)
 
     if not in_assign then
 
+        if table_node.known == "nom" then -- nometatable
+
+            --
+            -- if the table is assumed nometa, and the
+            -- type of the key is known, we can emit
+            -- a direct access to the array or hash
+            --
+
+            if not table_node.var then
+                table_name = "(" .. table_name .. ")"
+            end
+            local index_node_expr = index_node and self:expr(index_node)
+            local index_type = index_node and (index_node.known or index_node.type)
+            if index_type == "num" then
+                return table_name .. ".array[" .. self:expr(index_node) .. "]"
+            elseif index_type == "str" or field_name then
+                return table_name .. ".hash.get(" .. (field_name or index_node_expr) .. ")"
+            end
+        end
+
+        --
+        -- otherwise we emit a less direct access
+        --
+
         local s = "("
 
-        local table_var, table_var_tmp
-        if table_node.var then table_var = self.locals:get(table_node.var) end
+        local table_var
+        if table_node.var then
+            table_var = self.locals:get(table_node.var)
+        end
         if not table_var then
             local tmp = self:get_temp_var()
             s = s .. tmp .. "=" .. table_name .. ","
@@ -1753,13 +2021,20 @@ function class:expr_get(table_node, field_name, index_node, in_assign)
             field_str = true
         end
 
-        s = s .."(typeof " .. table_var .. "==='object'&&" .. table_var .. ".luatable&&"
+        if table_node.known ~= "nom" then -- nometatable
+            s = s .."(typeof " .. table_var .. "==='object'&&" .. table_var .. ".luatable&&"
+        end
+
         if field_str then
             s = s .. table_var .. ".hash.get(" .. field_var .. ")"
         elseif field_num then
             s = s .. table_var .. ".array[" .. field_var .. "]"
         else
             s = s .. "(typeof " .. field_var .. "==='number'?" .. table_var .. ".array[" .. field_var .. "]:" .. table_var .. ".hash.get(" .. field_var .. "))"
+        end
+
+        if table_node.known == "nom" then -- nometatable
+            return s .. ")"
         end
 
         return s .. ")||" .. self.jsyieldget .. table_var .. "," .. field_var .. debug_name .. ")))"
@@ -1799,7 +2074,15 @@ function class:is_bool_node(node)
 
     local type = node.type
 
-    if type == "and" or type == "or" then
+    if type == "and" then
+        -- 'and' returns the first operand only if
+        -- it is false or undefined, so we assume
+        -- that is_bool_node(node.operand1) is true,
+        -- and we need to check only operand2
+        return self:is_bool_node(node.operand2)
+    end
+
+    if type == "or" then
         return self:is_bool_node(node.operand1) and self:is_bool_node(node.operand2)
     end
 
@@ -1817,6 +2100,16 @@ function class:adjust_multival_expr(expr_str, multival)
     end
     return expr_str
 
+end
+
+
+function class:is_assume_macro(name)
+
+    return self.assumes and (
+            name == "assume_number"
+        or  name == "assume_function"
+        or  name == "assume_string"
+        or  name == "assume_nometa")
 end
 
 

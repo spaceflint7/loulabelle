@@ -802,7 +802,8 @@ function class:statement()
     elseif self.token == "return" then
         self:next_token()
         node = { type="return" }
-        if self.token ~= nil and self.token ~= "end" and self.token ~= ";" then
+        if self.token ~= nil and self.token ~= "end" and self.token ~= ";"
+            and self.token ~= "else" and self.token ~= "elseif" then
             local vals = self:explist()
             if vals then node["vals"] = vals else node = nil end
         end
@@ -826,12 +827,12 @@ function class:statement()
 
     elseif self.token == "break" or self.token == "continue" then
         if self.inside_loop then
-            if self.token == "continue" and self.inside_loop ~= "while" then
+            --[[if self.token == "continue" and self.inside_loop ~= "while" then
                 self.error = self.token .. " not inside while loop"
-            else
+            else]]
                 node = { type=self.token }
                 self:next_token()
-            end
+            --end
         else
             self.error = self.token .. " not inside loop"
         end

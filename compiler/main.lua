@@ -1,5 +1,10 @@
 
-local transpiler = require("transpiler")
+local ok, transpiler = pcall(function() return require("transpiler") end)
+if not ok then
+    local idx = arg[0]:reverse():find('/', 1, true) or 0
+    package.path = arg[0]:sub(1, -idx) .. "?.lua;" .. (package.path or "")
+    transpiler = require("transpiler")
+end
 
 local pgmname = arg[0] or "Loulabelle"
 
@@ -11,12 +16,13 @@ local function usage()
     print ("-o: optimize function calls and turn off call stack")
     print ("-G: disallow assignment to globals without table reference")
     print ("-J: disallow JavaScript statements")
+    print ("-A: disallow assume keywords")
     print ("-L: set object name for JavaScript (default $lua)")
     print ("-n: set chunk name (default same as inputfile argument)")
     return 1
 end
 
-local debug, jsallow, glballow = true, true, true
+local debug, jsallow, globals, assumes = true, true, true, true
 local jsobject, chunkname
 local i = 1
 while true do
@@ -25,11 +31,14 @@ while true do
     if s == '-o' then
         debug = false
         table.remove(arg, i)
+    elseif s == '-G' then
+        globals = false
+        table.remove(arg, i)
     elseif s == '-J' then
         jsallow = false
         table.remove(arg, i)
-    elseif s == '-G' then
-        glballow = false
+    elseif s == '-A' then
+        assumes = false
         table.remove(arg, i)
     elseif s == '-L' then
         table.remove(arg, i)
@@ -62,8 +71,12 @@ end
 local source = infile:read("*all")
 local javascript, errmsg = transpiler(
     chunkname, source, {
-        debug = debug, jsobject = jsobject,
-        JavaScript = jsallow, globals = glballow })
+        debug = debug,
+        jsobject = jsobject,
+        globals = globals,
+        assumes = assumes,
+        JavaScript = jsallow
+    })
 if errmsg then
     io.stderr:write(filename..': '..errmsg..'\n')
     os.exit(2)
