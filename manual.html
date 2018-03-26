@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Loulabelle 5201 Reference Manual</title>
+<title>Loulabelle 5202 Reference Manual</title>
 <link rel="stylesheet" type="text/css" href="manual.css">
 </head>
 
@@ -12,7 +12,7 @@
 
 <hr>
 <h1>
-Loulabelle 5201 Reference Manual
+Loulabelle 5202 Reference Manual
 </h1>
 
 <p>
@@ -77,7 +77,8 @@ The Lua <code>function</code> is implemented as a JavaScript
 <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/function*">generator function</a>,
 which provides a mechanism to <code>yield</code> execution, and in turn, to emulate synchronous
 execution and Lua coroutines.  Because generator functions are slower than normal JavaScript functions,
-Loulabelle also provides the function <code>coroutine.fastcall</code> to call Lua functions as normal
+Loulabelle also provides the function <a href="#coroutine.fastcall"><code>coroutine.fastcall</code></a>
+to call Lua functions as normal
 JavaScript functions, which are faster but cannot yield or suspend.
 <p>
 The Lua <code>coroutine</code> is implemented as a JavaScript object,
@@ -225,7 +226,7 @@ created by <code>coroutine.wrap</code>, Loulabelle
 supports two more types of coroutines.
 
 <p>
-Spawned coroutines, created by <code>coroutine.spawn</code>,
+Spawned coroutines, created by <a href="#coroutine.spawn"><code>coroutine.spawn</code></a>,
 are detached from the creating coroutine, and begin
 execution asynchronously and independently.  They are
 scheduled via a call to JavaScript
@@ -243,12 +244,12 @@ function, and passes its first result on to the caller.
 <p>
 Coroutines in Loulabelle can yield, as in Lua, via a
 call to <code>coroutine.yield</code> but can also
-suspend, via a call to <code>coroutine.suspend</code>.
+suspend, via a call to <a href="#coroutine.suspend"><code>coroutine.suspend</code></a>.
 A suspended coroutine does not pass control back to
 its calling coroutine.  Instead it just suspends execution,
 presumably while waiting for some event to occur
 and cause it to resume execution.  For example, the
-<code>coroutine.sleep</code> function suspends the
+<a href="#coroutine.sleep"><code>coroutine.sleep</code></a> function suspends the
 current coroutine after installing a timeout
 callback which calls <code>coroutine.resume</code>.
 
@@ -261,8 +262,7 @@ however there are a few minor points of difference.
 <ul>
 
 <li>
-Loulabelle includes a <code>continue</code> statement,
-which can be used only within a <code>while</code> loop.
+Loulabelle includes a <code>continue</code> statement.
 <p></li>
 
 <li>
@@ -283,7 +283,7 @@ thus simulating a multi-level <code>continue</code> statement.</li>
 The length operator <code>#</code>, when applied
 to tables, may return a different result in Loulabelle.
 In Loulabelle, the table length is calculated by starting
-from the JavaScript <code>length</code> property of the
+from the JavaScript <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/length"><code>length</code></a> property of the
 array part of the Lua table, and repeatedly decrementing
 it as long as it indexes <code>undefined</code>
 (i.e. <code>nil</code>) entries.
@@ -299,16 +299,14 @@ may be passed to <code>func1</code> after the
 <code>y</code> parameter, and the second and third
 results returned from <code>func1</code> may be
 assigned to <code>b</code> and <code>c</code>.
-Loulabelle determines if a value is a multiple
-value by checking if it is a JavaScript object
-which has a length property:
-<pre>typeof v === 'object' &amp;&amp; v.length &gt; 0</pre>
+Loulabelle checks if the return value is a multiple-value array
+using JavaScript <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray"><code>Array.isArray</code></a>.
 When mixing JavaScript and Lua objects in Lua code,
 it is important to keep this multiple value rule in
-mind.  Avoid passing a JavaScript object (which may
-contain the property <code>length</code>) as the last
-parameter in a Lua function call.  Instead, pass at
-least one more parameter (even <code>nil</code>).
+mind.  Avoid passing a JavaScript array as the last
+parameter in a Lua function call, or as the last value
+in the array part of a table constructor.  Instead,
+pass at least one more parameter (even <code>nil</code>).
 <p></li>
 
 </ul>
@@ -405,6 +403,83 @@ the top of a function, a dummy label such as
 Note that the name of the label is arbitrary.
 </ul>
 
+<h2>3.7 &ndash; <a name="3.7">Type Annotations</a></h2>
+
+<p>
+To account for the dynamic types in Lua, and the
+metamethod mechanism, the Loulabelle compiler has
+to generate code that checks the actual types of
+objects at runtime.  For example, the expression
+<code>a + b</code>, when types of the local variables
+<code>a</code> and <code>b</code> are not known,
+is translated to the following:
+
+<pre>v3 = (typeof v1 === 'number' &amp;&amp; typeof v2 === 'number' ? v1 + v2 : yield*$lua.add(v1, v2, true));</pre>
+
+<p>
+On the other hand, if the compiler knows for certain
+that <code>a</code> and <code>b</code> are numbers,
+then the generated code is shorter and faster:  <code>v3=(v1+v2);</code>
+
+<p>
+Code that requires this optimization can use type
+annotations to tell the compiler to assume a specific
+type for expressions and local variables, and skip
+some type checks when generating code.
+
+<p>The annoations are:
+
+<ul>
+<li><code>assume_number</code> - assumes a number
+type.  This skips type checks in arithmetic
+expressions, and references the <code>array</code>
+part in table indexing.  Numeric constants,
+numeric <code>for</code> loop variables, and
+the string length operator (<code>#</code>) all
+assume the number type by default, as well as
+arithmetic expressions with operands that are all
+known to be a number type.
+<p></li>
+
+<li><code>assume_string</code> - assumes a string
+type.  This skips type checks in the string
+concatenation operator (<code>..</code>), and
+references the <code>hash</code> part in table
+indexing.   String constants assume the string
+type by default, as well as concatenation expressions
+with operands that are all known to be a string type.<p></li>
+
+<li><code>assume_function</code> - assumes a function
+type.  This skips type checks in function calls.
+Note that this type is not assumed by default, not
+even for <code>local function</code> definitions.<p></li>
+
+<li><code>assume_nometa</code> - assumes a table that
+is known to not have an associated metatable.  Note
+that this affects only table access, in that getting
+will not invoke the <code>__index</code> metamethod,
+and setting will not invoke the <code>__newindex</code>
+metamethod.  Note also that this type is not assumed
+by default.<p></li>
+</ul>
+
+These annotations can be used around expressions,
+in a form similar to a function call, to annotate
+the type of the expression, and can also be used
+as a statement, to assume the type of one or more
+local variables (separated by commas).  For example:
+
+<pre>
+local a = 4                     -- type of a is number
+local b = x()                   -- type of b is not known
+local c = 4 + assume_number(b)  -- type of c is number
+local d = y()                   -- tpye of d is not known
+assume_number(b, d)             -- types of b and d are now number
+local e = c + b * b             -- type of e is number
+</pre>
+
+<p>
+
 <h1>4 &ndash; <a name="4">The Application Program Interface</a></h1>
 
 <p>
@@ -422,19 +497,64 @@ global runtime object <code>$lua</code>.
 A Lua function is compiled into the following JavaScript:
 <pre>$lua.func(
         function* func() {
-            JavaScript code translated from Lua source code
+            // JavaScript code translated from Lua source code
         },
-        $lua.env,
-        'filename.lua',
-        1)
+        $lua.env,                       // or func.env
+        function(s){return eval(s)},    // or undefined
+        'filename.lua',                 // or func.file
+        1)                              // line number
     );</pre>
 
-<p><code>$lua.func</code> is a small utility function,
-which decorates the first parameter, a function object,
-with a reference to the Lua environment for the function
-(passed as the second parameter), the chunk or file name,
-and the line number of the function (in the third and
-fourth parameters).
+<p><code>$lua.func</code> is a small utility function
+which stores additional properties on the function
+object <code>func</code> which is passed as the
+first parameter.  The following properties are stored:
+
+<ul>
+<li><code>func.self</code>, assigned from the first
+parameter, is a reference to the function itself.<p></li>
+
+<li><code>func.env</code>, assigned from the second
+parameter, is a reference to the Lua environment for
+the function.  For a chunk function (the outermost
+function in a compiled chunk), this is passed as
+<code>$lua.env</code>, to reference the global
+environment. For functions defined within a chunk,
+this is passed as <code>func.env</code>, which
+references the environment of the encompassing
+function or chunk.<p></li>
+
+<li><code>func.eval</code>, assigned from the third
+parameter, is a recompiler utility function.  Functions
+passed to <a href="#load"><code>load</code></a> and
+<a href="#coroutine.fastcall"><code>coroutine.fastcall</code></a>
+need to be recompiled, and if the function references
+any upvalues, it must be recompiled in the same
+context or scope in which it was defined.  The
+recompiler utility function can provide that original
+context.  For functions that do not reference upvalues,
+the third parameter is passed as <code>undefined</code>.
+(Note that Loulabelle will not be able to detect
+upvalue references in functions that reference
+upvalues only through <a href="#3.6"><code>JavaScript</code></a>
+statements.)<p></li>
+
+<li><code>func.file</code>, assigned from the fourth
+parameter, is the name of the source file.  For a
+chunk function (the outermost function in a compiled
+chunk), this is the source file name string.  For
+functions defined within a chunk, this is passed as
+<code>func.file</code>, which references the name
+of the encompassing function or chunk.<p></li>
+
+<li><code>func.line</code>, assigned from the fifth
+parameter, is the line number of the function
+definition.<p></li>
+
+<li><code>func.fast</code> is a utility function
+that is used in the <code>fastcall</code> mechanism;
+see <a href="#coroutine.fastcall"><code>coroutine.fastcall</code></a>.<p></li>
+</ul>
 
 <p>
 Note that like in Lua, a Lua source file is compiled
@@ -514,12 +634,9 @@ if passed as <code>undefined</code>, inhibits the
 creation of a call stack entry.
 
 <p>
-As discussed in <a href="#3">section 3</a>, the last parameter is
-checked to see if it is an array:
-
-<pre>typeof v === 'object' &amp;&amp; v.length &gt; 0</pre>
-
-<p>
+As discussed in <a href="#3">section 3</a>, the last
+parameter is checked to see if it is an array, using
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray"><code>Array.isArray</code></a>.
 If the check succeeds, <code>call</code> assumes
 the last parameter is an array of multiple values,
 and unpacks those values as additional parameters
@@ -529,8 +646,7 @@ for the function call.
 When using <code>call</code> to call functions with
 non-Lua JavaScript objects, it is important to keep
 this multiple value rule in mind.  Avoid passing a
-JavaScript object (which may contain the property
-<code>length</code>) as the last parameter.  Instead,
+JavaScript array as the last parameter.  Instead,
 pass at least one more parameter (even <code>undefined</code>).
 
 <p>
@@ -592,12 +708,9 @@ is a JavaScript object that represents a Lua table.
 This returned object is not wrapped in an array.
 
 <p>
-As discussed in <a href="#3">section 3</a>, the last parameter is
-checked to see if it is itself an array:
-
-<pre>typeof v === 'object' &amp;&amp; v.length &gt; 0</pre>
-
-<p>
+As discussed in <a href="#3">section 3</a>, the last
+parameter is checked to see if it is an array, using
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray"><code>Array.isArray</code></a>.
 If the check succeeds, <code>table</code> assumes
 the last parameter is an array of multiple values,
 and unpacks those values as additional sequential
@@ -607,8 +720,7 @@ values.
 When using <code>table</code> to create a table which
 references non-Lua JavaScript objects, it is important
 to keep this multiple value rule in mind.  Avoid
-passing a JavaScript object (which may contain the
-property <code>length</code>) as the last element in
+passing a JavaScript array as the last element in
 the <code>vals</code> array.  Instead, pass at least
 one more parameter (even <code>undefined</code>).
 
@@ -855,7 +967,7 @@ respectively.
 The loaded script is expected to have been compiled by Loulabelle
 such that it contains a single call to <code>$lua.chunk</code>
 which wraps all other code in the chunk, as discussed
-at the top of section 4.
+at the top of <a href="#4">section 4</a>.
 
 <p>
 Returns a (generator) function representing the loaded chunk.
@@ -988,6 +1100,19 @@ parameter <code>env</code>, which can be passed as
 default environment.
 Ignores parameters <code>source</code> and <code>mode</code>.
 See also <a href="#2.2">section 2.2</a>.
+
+<p>
+The function is recompiled by calling JavaScript
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/toString"><code>toString()</code></a>
+on the input function, and compiling the resulting source code
+using the recompiler utility function assigned to
+the <code>eval</code> property of the original function,
+as discussed at the top of <a href="#4">section 4</a>.
+(But note that if the function references upvalues only
+through <a href="#3.6"><code>JavaScript</code></a>
+statements, the <code>eval</code> property will not
+be set, and the converted function will not compile
+correctly.)
 
 <hr><h3><a name="next"><code>next (table [, index])</code></a></h3>
 
@@ -1216,39 +1341,50 @@ Lua colon syntax for method calls.
 <p>
 Performs a dynamic, on-the-fly recompilation of the
 Lua function <code>func</code>, into a normal,
-non-generator JavaScript function.  This "fast"
-version of the function is cached for future
-invocations.  Any functions called by
-<code>func</code> will also be
-<code>fastcall</code>-converted and cached.
+non-generator JavaScript function.  In many
+JavaScript engines, JavaScript generator functions
+do not enjoy the same JavaScript JIT compiler
+optimizations that are available to non-generator
+functions.  The <code>fastcall</code> mechanism
+makes it possible to optimize specific Lua
+functions that require higher performance.
 
 <p>
-In many JavaScript engines, JavaScript generator
-functions do not enjoy the same JavaScript JIT
-compiler optimizations that are available to
-non-generator functions.  The <code>fastcall</code>
-mechanism makes it possible to optimize specific
-Lua functions that require higher performance.
+The converted, "fast" version of the function is
+cached for future invocations, by storing it in the
+<code>fast</code> property of the function object.
+Any function called by <code>func</code> will also
+be <code>fastcall</code>-converted and cached:  This
+is done by converting any call to function
+<code>fn</code> with a call to function
+<code>fn.fast</code> instead.  As discussed at the
+top of <a href="#4">section 4</a>, this <code>fast</code>
+property is initially a utility function that
+<code>fastcall</code>-converts the function, and
+overwrites the <code>fast</code> property with the
+converted function.
 
 <p>
-Note that functions converted by <code>fastcall</code>:
-<ul>
-<li>Cannot use any asynchronous features that depend on
-generators, such as coroutines and <code>require</code>.<p></li>
-<li>Cannot reference any upvalues.  Note that this restriction
-is only checked and enforced when compiling Lua in default mode
-with debug checks.  When compiling optimized Lua code, this
-restriction is not checked, and may cause reference errors,
-or silently reference the wrong variable and produce wrong results.
-</li>
-</ul>
+Note that functions converted by <code>fastcall</code>
+cannot use any asynchronous features that depend on
+generators, such as coroutines and <code>require</code>.
 
 <p>
 The <code>fastcall</code> recompiler works by
-calling JavaScript toString() on the input function.
+calling JavaScript <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/toString"><code>toString()</code></a>
+on the input function.
 Then, under the assumption that the function was
 created by Loulabelle, rewrites <code>yield*</code>
-expressions as direct function calls.
+expressions as direct function calls.  Finally,
+the converted function is recompiled using the
+recompiler utility function assigned to the
+<code>eval</code> property of the original function,
+as discussed at the top of <a href="#4">section 4</a>.
+(But note that if the function references upvalues only
+through <a href="#3.6"><code>JavaScript</code></a>
+statements, the <code>eval</code> property will not
+be set, and the converted function will not compile
+correctly.)
 
 <h2>6.3 &ndash; <a name="6.3">Modules</a></h2>
 
@@ -1259,7 +1395,7 @@ provided in the global environment.  The
 fields: <code>package.loaded</code> which caches
 (or can be used to preload) modules, and
 <code>package.Loulabelle</code> which is the
-Loulabelle version number and set to <code>5201</code>.
+Loulabelle version number and set to <code>5202</code>.
 
 <p>
 <hr><h3><a name="#require"><code>require (modname)</code></a></h3>
@@ -1457,6 +1593,15 @@ Uses JavaScript function
 Loulabelle provides only a few functions in the <code>os</code> library,
 and even those provide limited functionality.
 
+<hr><h3><a name="os.clock"><code>os.clock ()</code></a></h3>
+
+<p>
+Returns a time value measured in seconds.  Note that
+unlike the <code>os.clock</code> function in Lua,
+this is not CPU time.  Uses
+<a href="https://developer.mozilla.org/en-US/docs/Web/API/Performance/now"><code>performance.now()</code></a>
+in the browser, and <code>process.hrtime</code> in Node.js.
+
 <hr><h3><a name="os.date"><code>os.date (format, time)</code></a></h3>
 
 <p>
@@ -1520,6 +1665,7 @@ The options are:
 <li><b><code>-o</code>: </b> optimize function calls and turn off call stack</li>
 <li><b><code>-G</code>: </b> disallow assignment to globals without table reference</li>
 <li><b><code>-J</code>: </b> disallow JavaScript statements</li>
+<li><b><code>-A</code>: </b> disallow assume keywords</li>
 <li><b><code>-L <em>name</em></code>: </b> set object name for JavaScript (default $lua)</li>
 <li><b><code>-n <em>name</em></code>: </b> set chunk name (default same as inputfile argument)</li>
 </ul><p>
@@ -1583,12 +1729,28 @@ and is minimized.
 
 <li><b><code>JavaScript</code>: </b>
 If this field is false, the compiler will not
-recognize the JavaScript statement.
+recognize the <a href="#3.6"><code>JavaScript</code></a> statement.
 <p></li>
 
 <li><b><code>globals</code>: </b>
 If this field is false, the compiler will detect
 assignments to global variables, and raise an error.
+<p></li>
+
+<li><b><code>assumes</code>: </b>
+If this field is false, the compiler will not
+recognize the <a href="#3.7"><code>assume_number, assume_string, assume_function, assume_nometa</code></a>
+keywords, in either statement or expression form.
+<p></li>
+
+<li><b><code>env</code>: </b>
+If this field is omitted, the compiler returns a
+string containing JavaScript source code.  If this
+field is specified, the compiler returns a JavaScript
+function that was compiled from the source code string,
+and had its Lua environment set to the value specified
+in this field, which should be a Lua table.
+
 <p></li>
 
 </ul><p>
