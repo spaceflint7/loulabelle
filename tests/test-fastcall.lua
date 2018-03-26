@@ -38,16 +38,15 @@ print "TIMING FAST 2" coroutine.fastcall(timeIt, f2a, TIMES, 'FAST')
 -----------------------------------
 
 --
--- test detection of upvalue reference in fastcall
---[[
+-- test upvalue references in fastcall
+--
 
 local function gen_test()
 
     local v0
     local v = 'v1'
     return function()
-        --print (v)
-        (function() print (v) end)()
+        return (function() return v end)()
     end
 
 end
@@ -60,10 +59,8 @@ local function test_test(f)
 end
 
 local f = gen_test()
-f()
-coroutine.fastcall(f)
--- test_test(f)
+assert(f() == coroutine.fastcall(f))
 
-]]--------------------------------------
+--------------------------------------
 
 print '-----ALL OK-----'

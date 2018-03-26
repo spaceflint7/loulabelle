@@ -48,6 +48,7 @@ t = { 1, 2, 3, ret123() }
 for k,v in pairs(t) do print (k,v) end
 
 print('TABLE DELETE LOOP')
+t[0x5p-5] = 'Test'
 t['Test'] = 'Test'
 while true do
     local k = next(t)
@@ -55,6 +56,18 @@ while true do
     print ('DELETING', k)
     t[k] = nil
 end
+for k,v in pairs(t) do print (k,v) end
+
+print('ANOTHER ITERATION TEST')
+local t = {}
+t[-7] = 'MinusSeven'
+t[-1] = 'MinusOne'
+t[0] = 'Zero'
+t[1] = 'PlusOne'
+t[7] = 'PlusSeven'
+print 'IPAIRS'
+for k,v in ipairs(t) do print (k,v) end
+print 'PAIRS'
 for k,v in pairs(t) do print (k,v) end
 
 print '-----ALL OK-----'

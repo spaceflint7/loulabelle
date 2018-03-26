@@ -1,6 +1,8 @@
 
+local sep = '-------------'
+
 function t1(arg)
-    print '-------------'
+    print (sep)
     print 'Global Table:'
     for k,v in pairs(_G) do print(k) end
     --[[if t2 then

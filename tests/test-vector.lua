@@ -21,6 +21,8 @@ setmetatable(Vector, {
                 return v.class.." X="..tostring(v.x).." Y="..tostring(v.y)
             end,
 
+    __len = function(v) return ("length as string") end
+
 })
 
 local v1 = Vector(10, 20)
@@ -32,3 +34,5 @@ print (v1 + v2)
 
 print (v1:self().constant)
 v1:self():print()
+
+print (#v1)
