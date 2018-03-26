@@ -148,7 +148,7 @@ local_main = function(document, iframe, input)
     end)
 
     for i = 1, 100 do
-        post { window=window, type="ping", time=ping_time }
+        post { window=window, type="ping", time=ping_time, url=document.URL }
         coroutine.sleep(100)
         if pong_time == ping_time then break end
     end
@@ -192,8 +192,11 @@ local_main = function(document, iframe, input)
         end
 
         if #inputqueue ~= 0 then
-            console_busy = true
             local cmd = table.remove(inputqueue,1)
+            if not console_busy and cmd:sub(1,1) == '=' then
+                cmd = 'return ' .. cmd:sub(2)
+            end
+            console_busy = true
             if cmd == "/clear" then
                 JavaScript("$1.setValue('')", console_widget)
                 console_busy = false
@@ -211,6 +214,61 @@ local_main = function(document, iframe, input)
         end
     end
 
+end
+
+--
+-- remote_compile
+--
+
+local function remote_compile(Loulabelle, res)
+
+    local debug = true
+    res.source_text = res.source_text:rtrim()
+    if res.source_text:endswith("--nodebug") then
+        debug = false
+    end
+
+    local filepath = res.folder_name .. '/' .. res.file_name
+    local func, err = Loulabelle(
+            res.file_name .. ".lua",
+            res.source_text, {
+                env = _G, debug = debug })
+    if err then
+        err = err .. ' in file ' .. filepath
+        error(err, 2)
+    end
+
+    return func
+
+end
+
+--
+-- remote_load
+--
+
+local function remote_load(Loulabelle)
+
+    local load = _G.load
+
+    return function(text, source, mode, env)
+
+        if type(text) ~= 'string' then
+            return load(text, source, mode, env)
+        end
+
+        local res = {
+            folder_name = '(load)',
+            file_name = '(load)',
+            source_text = text
+        }
+
+        local func = remote_compile(Loulabelle, res)
+        if func and env then
+            func = load(func, nil, nil, env)
+        end
+        return func
+
+    end
 end
 
 --
@@ -264,22 +322,15 @@ local function remote_require(Loulabelle, document)
         if not require_mode then result = res.source_text
         else
 
-            local filepath = res.folder_name .. '/' .. res.file_name
-            local func, err = Loulabelle(res.file_name .. ".lua", res.source_text, { env = _G, debug=true })
-            if err then
-                err = err .. ' in file ' .. filepath
-                error(err, 2)
-            end
-
-            -- JavaScript("console.log($1.toString())", func)
-            result = func()
+            result = remote_compile(Loulabelle, res)
+            result = result()
 
             if result == nil then
                 result = cache[path]
                 if result == nil then result = true end
             end
 
-            if slash then stack[#stack] = nil end
+            if slash and #stack > 1 then stack[#stack] = nil end
         end
 
         cache[path] = result
@@ -301,6 +352,9 @@ local function remote_main()
 
     local Loulabelle = require "Loulabelle"
 
+    package.playground = true
+    load = remote_load(Loulabelle)
+
     --
     -- wait for initial message from iframe host
     --
@@ -311,6 +365,7 @@ local function remote_main()
 
     install_listener(function(msg)
         if msg.type == "ping" then
+            _G.url = msg.url:sub(1, msg.url:rindex('/'))
             host = msg.window
             if host ~= nil then
                 msg.type = "pong"
@@ -444,16 +499,16 @@ local function remote_main()
     end
 
     while true do
-        local require_or_load = remote_require(Loulabelle, document)
-        require = function(s) return require_or_load((s), true) end
-        io.load = function(s) return require_or_load((s), false) end
-        --
         local text = read_input()
         post { window=host, type="print", text='>>>' .. text }
-        local func, err = Loulabelle('(console)', text, { env = _G, debug=true })
+        local func, err = Loulabelle('(console)', text, { env = _G, debug = true })
         if err then post { window=host, type="print", text=err }
         else
-            local ok, err = xpcall(func, function(s)
+            local require_or_load = remote_require(Loulabelle, document)
+            require = function(s) return require_or_load((s), true) end
+            io.load = function(s) return require_or_load((s), false) end
+            --
+            local ok, res = xpcall(func, function(s)
                 s = debug.traceback(s, 2)
                 -- discard stack trace beyond the initial xpcall
                 local idx = s:rindex('xpcall')
@@ -462,6 +517,9 @@ local function remote_main()
                 s = s:sub(1,idx)
                 print(s)
             end)
+            if ok and res then
+                post { window=host, type="print", text=res }
+            end
         end
         --
         old_coroutine.spawn(wait_for_coroutines)
