@@ -5,7 +5,6 @@
 
 source ../../build.cfg
 
-MYDIR=`pwd`
 LFLAGS=-o
 TARGET=$TARGET/ray2
 COMPILER=../../compiler

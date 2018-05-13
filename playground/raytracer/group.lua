@@ -125,9 +125,11 @@ intersect = function(self, ro, rd)
         local obj = assume_nometa(self[i])
 
         local obj_intersect = assume_function(obj[-2])
+        assume_untyped(obj)
         dist, obj = obj_intersect(obj, ro, rd)
+        assume_number(dist)
 
-        if dist and assume_number(dist) < min_dist then
+        if dist and dist < min_dist then
 
             min_dist = dist
             min_obj = obj
@@ -176,7 +178,6 @@ end,
 save = function(self, jsarray, jsindex)
 
     assume_nometa(self, jsarray)
-    assume_number(jsindex)
 
     local return_jsarray
     if not jsarray then
@@ -185,6 +186,7 @@ save = function(self, jsarray, jsindex)
         return_jsarray = jsarray
     end
 
+    assume_number(jsindex)
     local n = self[0]
     jsarray[jsindex] = n
     jsindex = jsindex + 1
@@ -198,10 +200,10 @@ save = function(self, jsarray, jsindex)
 
         -- call obj:save(jsarray, jsindex)
         local obj_save = assume_function(obj[-4])
-        jsindex = obj_save(obj, jsarray, jsindex + 1)
+        jsindex = assume_number(obj_save(obj, jsarray, jsindex + 1))
 
         -- call vec:save(jsarray, jsindex) on color
-        jsindex = vec_save(obj[-8], jsarray, jsindex)
+        jsindex = assume_number(vec_save(obj[-8], jsarray, jsindex))
 
     end
 
@@ -216,12 +218,12 @@ end,
 load = function(self, jsarray, jsindex)
 
     assume_nometa(self, jsarray)
-    assume_number(jsindex)
 
     if not jsindex then
         jsindex = load(lights, jsarray, 0)
     end
 
+    assume_number(jsindex)
     local n = jsarray[jsindex]
     self[0] = n
     jsindex = jsindex + 1
@@ -244,10 +246,10 @@ load = function(self, jsarray, jsindex)
 
         -- call obj:load(jsarray, jsindex)
         local obj_load = assume_function(obj[-5])
-        jsindex = obj_load(obj, jsarray, jsindex + 1)
+        jsindex = assume_number(obj_load(obj, jsarray, jsindex + 1))
 
         -- call vec:load(jsarray, jsindex) on color
-        jsindex = vec_load(obj[-8], jsarray, jsindex)
+        jsindex = assume_number(vec_load(obj[-8], jsarray, jsindex))
     end
 
     return jsindex
