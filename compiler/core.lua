@@ -223,7 +223,7 @@ JavaScript("$L.cmple=$1", function(o1, o2, dbg)
     JavaScript("var r=yield*$L.callcmpop($1,$2,t1,t2,'__le',$3)", o1, o2, dbg)
     JavaScript("if(r!==undefined)return r")
     -- try to use __le when __lt is missing, per section 2.4
-    JavaScript("var r=yield*$L.callcmpop($2,$1,t1,t2,'__lt',$3)", o1, o2, dbg)
+    JavaScript("var r=yield*$L.callcmpop($2,$1,t2,t1,'__lt',$3)", o1, o2, dbg)
     JavaScript("if(r!==undefined)return !r")
     JavaScript("yield*$L.error_cmp($1,$2)", o1, o2)
 end)
@@ -433,7 +433,7 @@ end)
 
 JavaScript("Object.assign($L.env,yield*$L.table())")
 JavaScript("$L.env.hash.set('_VERSION','Lua 5.2')")
-_G=_ENV
+JavaScript("$L.env.hash.set('_G',$1)", _ENV)
 
 --
 -- metatable
@@ -451,7 +451,7 @@ JavaScript("$L.gmt=$1", function(val, typ, who)
     JavaScript(     "else if(t==='string')i=3")
     JavaScript(     "else if(t==='number')i=2")
     JavaScript(     "else if(t==='boolean')i=1")
-    JavaScript(     "else yield*$L.error('unexpected type in getmetatable-'+$1,0)", who)
+    JavaScript(     "else yield*$L.error('unknown type in getmetatable-'+$1,0)", who)
     JavaScript("}")
     JavaScript("return $L.vmt[i]")
 end)
@@ -471,7 +471,7 @@ JavaScript("$L.smt=$1", function(val, mt)
     JavaScript("$L.vmt[i]=$1", mt)
 end)
 
-getmetatable = function(...)    -- function(t)
+_G.getmetatable = function(...)     -- function(t)
     local t = ...
     local mt
     JavaScript("yield*$L.error_argexp(1,$1.length)", ...)
@@ -483,7 +483,7 @@ getmetatable = function(...)    -- function(t)
     return mt
 end
 
-setmetatable = function(...)    -- function(t,mt)
+_G.setmetatable = function(...)     -- function(t,mt)
     local t, mt = ...
     JavaScript("yield*$L.checktable($1,1)", t)
     JavaScript("if($2.length<2||($1!==undefined&&(typeof $1!=='object'||!$1.luatable)))yield*$L.error_arg(2,'nil or table expected')", mt, ...)
@@ -512,7 +512,7 @@ JavaScript("$L.tonumber=$1", function(str)
     JavaScript("return m*Math.pow(2,e)")
 end)
 
-tonumber = function(s,b)
+_G.tonumber = function(s,b)
     if not b then
         JavaScript("if(typeof $1!=='number')$1=yield*$L.tonumber($1)", s)
         return s
@@ -561,7 +561,7 @@ JavaScript("$L.tostring=$1", function(o, dbg)
     JavaScript("yield*$L.error('unexpected type: '+t)")
 end)
 
-tostring = function(...)    -- function(v)
+_G.tostring = function(...)     -- function(v)
     local v = ...
     JavaScript("yield*$L.error_argexp(1,$1.length)", ...)
     JavaScript("return[yield*$L.tostring($1,typeof $$frame==='object')]", v)
@@ -571,14 +571,14 @@ end
 -- raw access functions
 --
 
-rawget = function(...)      -- function(t, k)
+_G.rawget = function(...)       -- function(t, k)
     local t, k = ...
     JavaScript("yield*$L.checktable($1,1)", t)
     JavaScript("yield*$L.error_argexp(2,$1.length)", ...)
     JavaScript("return[typeof $2==='number'?$1.array[$2]:$1.hash.get($2)]", t, k)
 end
 
-rawset = function(...)      -- function(t, k, v)
+_G.rawset = function(...)       -- function(t, k, v)
     local t, k, v = ...
     JavaScript("yield*$L.checktable($1,1)", t)
     JavaScript("yield*$L.error_argexp(2,$1.length)", ...)
@@ -592,14 +592,14 @@ rawset = function(...)      -- function(t, k, v)
     JavaScript("return[$1]", t)
 end
 
-rawequal = function(...)        -- function(a, b)
+_G.rawequal = function(...)     -- function(a, b)
     local a, b = ...
     JavaScript("yield*$L.error_argexp(1,$1.length)", ...)
     JavaScript("yield*$L.error_argexp(2,$1.length)", ...)
     JavaScript("return[$1===$2]", a, b)
 end
 
-rawlen = function(o)
+_G.rawlen = function(o)
     ::update_stack_frame::
     JavaScript("var t=typeof $1", o)
     JavaScript("if(t==='string')return $1.length", o)
@@ -614,7 +614,7 @@ end
 -- error
 --
 
-error = function(msg, lvl)
+_G.error = function(msg, lvl)
     ::update_stack_frame::
     JavaScript("if($1!==undefined)$1=(yield*$L.checknumber($1,2))|0", lvl)
     JavaScript("if($1===0)$1=-1", lvl)
@@ -625,7 +625,7 @@ end
 -- assert
 --
 
-assert = function(...)
+_G.assert = function(...)
     local v, msg = ...
     if not v then JavaScript("yield*$L.error($1,1)", msg or 'assertion failed!') end
     return ...
@@ -635,7 +635,7 @@ end
 -- type
 --
 
-type = function(...)        -- function(v)
+_G.type = function(...)         -- function(v)
     local v = ...
     JavaScript("yield*$L.error_argexp(1,$1.length)", ...)
     JavaScript("return[yield*$L.type($1)]", v)
@@ -646,7 +646,7 @@ end
 -- note: print uses tostring() from _G, while string.format should call $L.tostring
 --
 
-print = function(...)
+_G.print = function(...)
     local tos = tostring
     local str = ""
     JavaScript("for(var i=0;i<$1.length;i++){", ...)
@@ -717,7 +717,7 @@ JavaScript("$L.next=$1", function(t, k)
     JavaScript(         "return nx}}")
 end)
 
-next = function(t, k)
+_G.next = function(t, k)
     ::update_stack_frame::
     JavaScript("yield*$L.checktable($1,1)", t)
     JavaScript("return yield*$L.next($1,$2)", t, k)
@@ -735,7 +735,7 @@ JavaScript("$L.xpairs=$1", function(t, i)
     JavaScript("yield*$L.checktable($1,1)", t)
 end)
 
-pairs = function(t)
+_G.pairs = function(t)
     ::update_stack_frame::
     JavaScript("var r=yield*$L.xpairs($1,'')", t)
     -- to prevent multiple concurrent loops from competing for the same iterator
@@ -755,7 +755,7 @@ JavaScript("$L.inext=$1", function(t, k)
     JavaScript("return(v===undefined?[]:[k,v])")
 end)
 
-ipairs = function(t)
+_G.ipairs = function(t)
     ::update_stack_frame::
     JavaScript("var r=yield*$L.xpairs($1,'i')", t)
     JavaScript("if(r===undefined)r=[$L.inext,$1,0]", t)
@@ -766,7 +766,7 @@ end
 -- select
 --
 
-select = function(idx, ...)
+_G.select = function(idx, ...)
     ::update_stack_frame::
     JavaScript("var n=$1.length", ...)
     JavaScript("if($1==='#')return[n]", idx)
@@ -801,12 +801,12 @@ end)
 
 JavaScript("$L.dflt_msgh=function*(x){return[x]};")
 
-pcall = function(func, ...)
+_G.pcall = function(func, ...)
     ::update_stack_frame::
     JavaScript("return yield*$L.xpcall($L.dflt_msgh,$1,$2)", func, ...)
 end
 
-xpcall = function(func, msgh, ...)
+_G.xpcall = function(func, msgh, ...)
     ::update_stack_frame::
     JavaScript("return yield*$L.xpcall($1,$2,$3)", msgh, func, ...)
 end
@@ -815,7 +815,7 @@ end
 -- load
 --
 
-load = function(func, source, mode, env)
+_G.load = function(func, source, mode, env)
     ::update_stack_frame::
     JavaScript("yield*$L.checkfunction($1,1)", func)
     JavaScript("yield*$L.checktable($1,4)", env)
@@ -831,7 +831,7 @@ end
 -- debug library
 --
 
-debug = {
+_G.debug = {
 
     getmetatable = function(...)    -- function(t)
         local t = ...
@@ -863,7 +863,7 @@ debug = {
 JavaScript("$L.rngseed=1")
 JavaScript("$L.pi180=Math.PI/180")
 
-math = {
+_G.math = {
 
     abs = function(x)
         ::update_stack_frame::
@@ -1064,7 +1064,7 @@ JavaScript("$1.hash.set('huge',Number.POSITIVE_INFINITY)", math)
 -- string library
 --
 
-string = {
+_G.string = {
 
     dump = function(f)
         ::update_stack_frame::
@@ -1191,7 +1191,7 @@ string = {
         JavaScript("var str=yield*$L.checkstring($1,1)", string)
         JavaScript("var rgx=$L.regex_known.get($1)", pattern)
         JavaScript("if(rgx===undefined)yield*$L.error_regex()")
-        JavaScript("var num=0,max=$1===undefined?str.length+1:(yield*$L.checknumber($1,4))|0", count)
+        JavaScript("var num=0,len=str.length,max=$1===undefined?len+1:(yield*$L.checknumber($1,4))|0", count)
         JavaScript("var rep=$1,typ=typeof rep", replace)
         JavaScript("if(typ==='number'){typ='string';rep=rep.toString()}")
         JavaScript("else if(!(typ==='string'||typ==='function'||(typ==='object'&&rep.luatable)))yield*$L.error_arg(3,'string/function/table expected')")
@@ -1199,7 +1199,7 @@ string = {
         JavaScript("rgx.lastIndex=0")
         JavaScript("var idx=0")
         JavaScript("var buf=''")
-        JavaScript("while(num<max){")
+        JavaScript("while(num<max&&idx<len){")
         JavaScript(     "var r=rgx.exec(str)")
         JavaScript(     "if(r===null)break")
         JavaScript(     "buf+=str.substring(idx,r.index)")
@@ -1304,7 +1304,7 @@ JavaScript("$L.find_match=$1", function(haystack, needle, init, plain)
     JavaScript(     "idx=yield*$L.checknumber($1,3)", init)
     JavaScript(     "if(idx===0||idx<=-len)idx=1")
     JavaScript(     "else if(idx<0)idx+=len+1}")
-    JavaScript("if(idx>len)return[undefined]")      -- past end of string
+    JavaScript("if(idx>len)return null")      -- past end of string
     JavaScript("if($1){", plain)
     JavaScript(     "idx=$1.indexOf($2,idx-1)", haystack, needle)
     JavaScript(     "if(++idx===0)return[undefined]")
@@ -1400,7 +1400,7 @@ JavaScript("$L.format_print=$1", function(fmt, val, pos)
     JavaScript("case'e':case'E':case'f':case'F':case'g':case'G':case'a':case'A':\z
                         str=yield*$L.format_number($3,yield*$L.checknumber($1,$2),$2);break", val, pos, fmt)
     JavaScript("case'c':str=String.fromCharCode(yield*$L.checknumber($1,$2));break", val, pos)
-    JavaScript("case's':str=yield*$L.tostring($2).substr(0,$1.prec);break", fmt, val)
+    JavaScript("case's':str=(yield*$L.tostring($2)).substr(0,$1.prec);break", fmt, val)
     -- option q does not respect any printf flags
     JavaScript("case'q':return yield*$L.format_quote(yield*$L.checkstring($1,$2))", val, pos)
     JavaScript("default:yield*$L.error(\"invalid option '%\"+$1.letter+\"' to 'format'\")", fmt)
@@ -1591,7 +1591,7 @@ JavaScript("yield*$L.smt('',$1)", { __index = string })
 -- table library
 --
 
-table = {
+_G.table = {
 
     concat = function(tbl, sep, first, last)
         ::update_stack_frame::
@@ -1603,7 +1603,7 @@ table = {
         JavaScript("for(;i<j;i++){")
         JavaScript("var x=$1.array[i]", tbl)
         JavaScript("if(typeof x==='number')x=x.toString()")
-        JavaScript("else if(typeof x!=='string')yield*$L.error(\"invalid value (\"+(yield*$L.type(x))+\") at index \"+i+\" in table for 'concat'\", 2)")
+        JavaScript("else if(typeof x!=='string')yield*$L.error(\"invalid value (\"+(yield*$L.type(x))+\") at index \"+i+\" in table for 'concat'\", 1)")
         JavaScript("s+=x+sep}")
         JavaScript("if(i===j)s+=$1.array[i]", tbl)
         JavaScript("return[s]")
@@ -1737,7 +1737,7 @@ end)
 -- bit32 library
 --
 
-bit32 = {
+_G.bit32 = {
 
     band = function(...)
         ::update_stack_frame::
@@ -1852,7 +1852,7 @@ end)
 -- os library
 --
 
-os = {
+_G.os = {
 
     clock = function()
         ::update_stack_frame::
@@ -1949,7 +1949,7 @@ JavaScript("}")
 -- coroutine library
 --
 
-coroutine = {
+_G.coroutine = {
 
     create = function(func)
         ::update_stack_frame::
@@ -2262,9 +2262,9 @@ JavaScript("[$L.cocreate,$L.coresume,$L.cosuspend,$L.cowrap]=[$1,$2,$3,$4]",
 -- require() and package table
 --
 
-package = { loaded = {}, JavaScript = true, Loulabelle = 5202 }
+_G.package = { loaded = {}, JavaScript = true, Loulabelle = 5203 }
 
-require = function(module)
+_G.require = function(module)
     ::update_stack_frame::
     JavaScript("$1=yield*$L.checkstring($1,1)", module)
     local result = package.loaded[module]
@@ -2314,7 +2314,7 @@ JavaScript("$L.require_lua=$1", function(url)
     JavaScript(         "else{")
                             -- node.js
     JavaScript(             "require($1)}", url)
-    JavaScript(     "}catch(x){}")
+    JavaScript(     "}catch(x){console.error(x)}")
     JavaScript(     "$L.require_chunk=undefined}")
     JavaScript("return chunk")
 end)
@@ -2355,7 +2355,7 @@ JavaScript("$L.require_js=$1", function(url)
     JavaScript(         "if(typeof importScripts!=='undefined'){")
     JavaScript(             "importScripts($1)}", url)
     JavaScript(         "else{require($1)}", url)
-    JavaScript(     "}catch(x){}}")
+    JavaScript(     "}catch(x){console.error(x)}}")
 end)
 
 --

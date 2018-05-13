@@ -451,6 +451,7 @@ function class:assign_stmt(stmt)
 
     local vals = {}
     local multivals = {}
+    local valknowns = {}
     local valtypes = {}
     local nvals = 0
 
@@ -458,9 +459,14 @@ function class:assign_stmt(stmt)
     while val do
         nvals = nvals + 1
         vals[nvals], multivals[nvals] = self:expr(val)
-        local known = val.known or val.type
+        local known = val.known
         if known == "num" or known == "str" or known == "fun" or known == "nom" then
+            -- explicit type via assume
+            valknowns[nvals] = known
             valtypes[nvals] = known
+        else
+            -- implicit type inferred from operands
+            valtypes[nvals] = val.type
         end
         val = val.next
         if self.error then return end
@@ -589,9 +595,55 @@ function class:assign_stmt(stmt)
                 self:put(var_value)
                 self:put(";")
 
+                --
+                -- if a local variable was assigned an
+                -- explicit type via assume, make sure
+                -- this assumption is not violated by
+                -- any subsequent assignment
+                --
+
                 local type_index = var_index
                 if type_index > nvals then type_index = nvals end
-                self.locals:set("%" .. var_name, valtypes[type_index])
+
+                local known_old = self.locals:get("%" .. var_name)
+
+                if self.locals:get("#" .. var_name) == "for" then
+                    -- 'for' variables are special in that they
+                    -- start as assume_number but can be overridden,
+                    -- in which case they lose the special status
+                    known_old = nil
+                    self.locals:set("%" .. var_name, nil)
+                    self.locals:set("#" .. var_name, nil)
+                end
+
+                -- treat assume_untyped as unspecified type
+                if known_old == "unt" then known_old = nil end
+
+                if known_old and known_old ~= valtypes[type_index] then
+                        if known_old == 'num' then known_old = 'number'
+                    elseif known_old == 'str' then known_old = 'string'
+                    elseif known_old == 'fun' then known_old = 'function'
+                    elseif known_old == 'nom' then known_old = 'nometa'
+                    else   known_old = 'untyped' end
+                    local known_new = valtypes[type_index]
+                        if known_new == 'num' then known_new = 'number'
+                    elseif known_new == 'str' then known_new = 'string'
+                    elseif known_new == 'fun' then known_new = 'function'
+                    elseif known_new == 'nom' then known_new = 'nometa'
+                    else   known_new = 'untyped' end
+                    self.error = known_new .. " value assigned to assume_" .. known_old .. " local"
+                    return
+                end
+
+                --
+                -- if an expression has an explicit
+                -- assume type, pass this type to the
+                -- local variable being assigned
+                --
+
+                if valknowns[type_index] then
+                    self.locals:set("%" .. var_name, valknowns[type_index])
+                end
 
             end
 
@@ -622,6 +674,12 @@ function class:assume_stmt(stmt_name, args)
         if not var_name then break end
 
         self.locals:set("%" .. var_name, assume_type)
+        if self.locals:get("#" .. var_name) == "for" then
+            -- 'for' variables are special in that they
+            -- start as assume_number but can be overridden,
+            -- in which case they lose the special status
+            self.locals:set("#" .. var_name, nil)
+        end
 
         arg = arg.next
         if not arg then return end
@@ -670,7 +728,10 @@ function class:return_stmt(stmt, toplevel)
             -- need to insert all preceding values at the start of that
             -- array and we are done
 
-            local tmp = self:get_temp_var()
+            local highest_temp_var = self.locals:get("#tj") + 1
+            self.locals:set("#tj", highest_temp_var)
+            local tmp = "t" .. highest_temp_var
+            -- local tmp = self:get_temp_var()
 
             self:put(tmp .. "=")
             self:put(vals[nvals])
@@ -1038,6 +1099,7 @@ function class:for_numeric(stmt, xvar, yvar, zvar)
     local var_name = "v" .. tostring(stmt.var_num)
     self.locals:set(stmt.vars.var, var_name)
     self.locals:set("%" .. var_name, "num")
+    self.locals:set("#" .. var_name, "for")
 
     self:put(self:expr(stmt.vars))
     self:put("=")
@@ -1670,7 +1732,7 @@ function class:expr_op(node)
         elseif node_type == "and" then
             if self:is_bool_node(op1) then
                 v2 = self:expr(op2)
-                return v1 .. "&&(" .. v2 .. ")"
+                return "(" .. v1 .. ")&&(" .. v2 .. ")"
             end
             s = "("
             v1 = temp_v_(v1,op1)
@@ -1681,7 +1743,7 @@ function class:expr_op(node)
         elseif node_type == "or" then
             if self:is_bool_node(op1) then
                 v2 = self:expr(op2)
-                return v1 .. "||(" .. v2 .. ")"
+                return "(" .. v1 .. ")||(" .. v2 .. ")"
             end
             s = "("
             v1 = temp_v_(v1,op1)
@@ -1953,6 +2015,7 @@ end
 function class:expr_member(table_node, field_name, index_node, in_assign)
 
     table_node.parens = true
+    if index_node then index_node.parens = true end
 
     local debug_name = self.debug and ("," .. self:debug_name(table_node)) or ""
 
@@ -1975,7 +2038,7 @@ function class:expr_member(table_node, field_name, index_node, in_assign)
             local index_node_expr = index_node and self:expr(index_node)
             local index_type = index_node and (index_node.known or index_node.type)
             if index_type == "num" then
-                return table_name .. ".array[" .. self:expr(index_node) .. "]"
+                return table_name .. ".array[" .. index_node_expr .. "]"
             elseif index_type == "str" or field_name then
                 return table_name .. ".hash.get(" .. (field_name or index_node_expr) .. ")"
             end
@@ -2107,9 +2170,11 @@ function class:is_assume_macro(name)
 
     return self.assumes and (
             name == "assume_number"
-        or  name == "assume_function"
         or  name == "assume_string"
-        or  name == "assume_nometa")
+        or  name == "assume_function"
+        or  name == "assume_nometa"
+        or  name == "assume_untyped"
+    )
 end
 
 

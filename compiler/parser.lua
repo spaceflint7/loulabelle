@@ -555,9 +555,9 @@ function class:assignment(node,is_local)
     local first_node, prev_node
     if not node then
         node = self:suffixedexp()
-        if not node then return end
     end
     while true do
+        if not node then return end
         if node.type ~= "var" and node.type ~= "member" then
             self.error = "syntax error"
             return nil
