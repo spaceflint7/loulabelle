@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Loulabelle 5202 Reference Manual</title>
+<title>Loulabelle 5203 Reference Manual</title>
 <link rel="stylesheet" type="text/css" href="manual.css">
 </head>
 
@@ -12,7 +12,7 @@
 
 <hr>
 <h1>
-Loulabelle 5202 Reference Manual
+Loulabelle 5203 Reference Manual
 </h1>
 
 <p>
@@ -422,12 +422,12 @@ that <code>a</code> and <code>b</code> are numbers,
 then the generated code is shorter and faster:  <code>v3=(v1+v2);</code>
 
 <p>
-Code that requires this optimization can use type
-annotations to tell the compiler to assume a specific
-type for expressions and local variables, and skip
-some type checks when generating code.
+Using type annotations to tell the compiler to assume
+a specific type for expressions and local variables,
+enables the compiler to make the optimizations described
+above, and skip some type checks when generating code.
 
-<p>The annoations are:
+<p>The type annoations are:
 
 <ul>
 <li><code>assume_number</code> - assumes a number
@@ -461,6 +461,12 @@ will not invoke the <code>__index</code> metamethod,
 and setting will not invoke the <code>__newindex</code>
 metamethod.  Note also that this type is not assumed
 by default.<p></li>
+
+<li><code>assume_untyped</code> - discards any type
+annotation associated with a local variable or an
+expression.  This restores the variable or expression
+to an 'untyped' state, and disables any subsequent
+optimizations based for that variable or expression.<p></li>
 </ul>
 
 These annotations can be used around expressions,
@@ -1395,7 +1401,7 @@ provided in the global environment.  The
 fields: <code>package.loaded</code> which caches
 (or can be used to preload) modules, and
 <code>package.Loulabelle</code> which is the
-Loulabelle version number and set to <code>5202</code>.
+Loulabelle version number and set to <code>5203</code>.
 
 <p>
 <hr><h3><a name="#require"><code>require (modname)</code></a></h3>
@@ -1739,7 +1745,7 @@ assignments to global variables, and raise an error.
 
 <li><b><code>assumes</code>: </b>
 If this field is false, the compiler will not
-recognize the <a href="#3.7"><code>assume_number, assume_string, assume_function, assume_nometa</code></a>
+recognize the <a href="#3.7"><code>assume_...</code></a>
 keywords, in either statement or expression form.
 <p></li>
 
@@ -1758,7 +1764,7 @@ in this field, which should be a Lua table.
 <p>
 <HR>
 <SMALL CLASS="footer">
-Last update: Mar 2018
+Last update: May 2018
 </SMALL>
 
 </body></html>
